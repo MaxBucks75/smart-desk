@@ -1,0 +1,38 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "C:\\Users\\Administrator\\esp\\v5.4.2\\esp-idf",
+  "idf.pythonInstallPath": "d:\\IDF_TOOLS_PATH\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.openOcdConfigs": [
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32.cfg"
+  ],
+  "idf.portWin": "COM4",
+  "idf.toolsPathWin": "d:\\IDF_TOOLS_PATH",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32"
+  },
+  "clangd.path": "d:\\IDF_TOOLS_PATH\\tools\\esp-clang\\esp-18.1.2_20240912\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=d:\\IDF_TOOLS_PATH\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin\\xtensa-esp32-elf-gcc.exe",
+    "--compile-commands-dir=${workspaceFolder}\\build"
+  ],
+  "idf.flashType": "UART",
+  "files.associations": {
+    "app_task.h": "c",
+    "uart.h": "c",
+    "debug_tasks.h": "c",
+    "adc_continuous.h": "c",
+    "desk_controls.h": "c",
+    "task.h": "c",
+    "freertos.h": "c",
+    "fingerprint.h": "c",
+    "i2c_master.h": "c",
+    "stdint.h": "c",
+    "esp_log.h": "c",
+    "i2c_slave.h": "c",
+    "stdio.h": "c",
+    "i2c.h": "c",
+    "temperature_sensor.h": "c"
+  }
+}
