@@ -11,6 +11,7 @@
 #include "fan_controller.h"
 #include "string.h"
 #include "driver/i2c.h"
+#include "semaphore.h"
 
 #define CONFIG_DEBUG
 
@@ -22,7 +23,11 @@ void app_main(void)
     R503_init();
     i2c_init();
     adc_continuous_init();
+    xTaskCreate(adc_reader_task, "adc_reader", 4096, NULL, 2, NULL);
     fans_init();
+    linear_actuator_init();
+    relay_init();
+    vibrator_init();
 
     #ifdef CONFIG_DEBUG
     init_debug_tasks();

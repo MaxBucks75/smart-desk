@@ -117,38 +117,38 @@ static int R503_read_package(uint8_t *buffer) {
 
     if (!buffer) return ESP_ERR_INVALID_ARG;
 
-    uint8_t temp_buf[MAX_R503_PACKET_SIZE] = {0};
-    int read_len = uart_read_bytes(uart_num, temp_buf, MAX_R503_PACKET_SIZE, portMAX_DELAY);
-
-    #ifdef CONFIG_FP_DEBUG
-    ESP_LOGI(TAG, "Raw packet:");
-    for (int i = 0; i < read_len; i++) {
-        printf("%02X ", temp_buf[i]);
-    }
-    printf("\n");
-    #endif
-
-    if (read_len < 11) {
-        ESP_LOGE(TAG, "Response too short to be valid: %d bytes", read_len);
+    uint8_t temp_buf[9];
+    int read_len = uart_read_bytes(uart_num, temp_buf, sizeof(temp_buf), pdMS_TO_TICKS(500));
+    if (read_len != sizeof(temp_buf)) {
+        ESP_LOGE(TAG, "Timeout or short header (%d bytes)", read_len);
         return ESP_FAIL;
     }
+
     if (temp_buf[0] != 0xEF || temp_buf[1] != 0x01) {
-        ESP_LOGE(TAG, "Invalid packet header");
+        ESP_LOGE(TAG, "Invalid header: %02X %02X", temp_buf[0], temp_buf[1]);
         return ESP_FAIL;
     }
 
-    memcpy(buffer, temp_buf, read_len);
+    // Parse payload length (last two bytes of header)
+    uint16_t length = (temp_buf[7] << 8) | temp_buf[8];
 
-    #ifdef CONFIG_FP_DEBUG
-    ESP_LOGI(TAG, "Read %d bytes", read_len);
-    for (int i = 0; i < read_len; i++) {
-        printf("%02X ", buffer[i]);
+    int total_len = sizeof(temp_buf) + length;
+    memcpy(buffer, temp_buf, sizeof(temp_buf));
+
+    // Read rest of packet (length bytes = payload+checksum)
+    int payload_read = uart_read_bytes(uart_num, temp_buf + sizeof(temp_buf), length, pdMS_TO_TICKS(500));
+    if (payload_read != length) {
+        ESP_LOGE(TAG, "Timeout reading payload (%d/%d)", payload_read, length);
+        return ESP_FAIL;
     }
-    printf("\n");
+
+    ESP_LOGI(TAG, "Got full packet (%d bytes)", total_len);
+    #ifdef CONFIG_FP_DEBUG
+        for (int i = 0; i < total_len; i++) printf("%02X ", buffer[i]);
+        printf("\n");
     #endif
 
-    return read_len;
-
+    return total_len;
 }
 
 
@@ -265,8 +265,53 @@ esp_err_t R503_send_package_and_check_ack(uint8_t *cmd, uint16_t length) {
  */
 esp_err_t generate_image(void) {
     uint8_t cmd = R503_GENERATE_IMAGE; 
-    return R503_send_package_and_check_ack(&cmd, 1);
+    uint8_t response[MAX_R503_PACKET_SIZE];
+
+    uart_flush_input(uart_num);
+    if (R503_send_package(&cmd, R503_COMMAND_PACKET, 1) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+    int len = R503_read_package(response);
+    if (len < 0) return ESP_FAIL;
+
+    uint8_t conf = response[9]; // confirmation code
+    if (conf == R503_SUCCESS) {
+        return ESP_OK;
+    } else if (conf == R503_NO_FINGER) {
+        return ESP_ERR_NOT_FOUND;   // signal "no finger"
+    } else {
+        ESP_LOGE("FINGERPRINT", "GenerateImage failed, code=0x%02X", conf);
+        return ESP_FAIL;
+    }
 }
+
+esp_err_t wait_for_finger_and_capture(uint8_t buffer_id) {
+    while (1) {
+        esp_err_t res = generate_image();
+        if (res == ESP_OK) {
+            ESP_LOGI("FINGERPRINT", "Image captured, converting...");
+            vTaskDelay(pdMS_TO_TICKS(500));  // longer settle time
+
+            esp_err_t char_res = generate_char_file_from_image(buffer_id);
+            if (char_res == ESP_OK) {
+                ESP_LOGI("FINGERPRINT", "Image converted into buffer %d", buffer_id);
+                return ESP_OK;
+            } else {
+                ESP_LOGW("FINGERPRINT", "Image2Tz failed (bad image), retrying...");
+                vTaskDelay(pdMS_TO_TICKS(1000));
+            }
+        } else if (res == ESP_ERR_NOT_FOUND) {
+            ESP_LOGI("FINGERPRINT", "No finger, waiting...");
+            vTaskDelay(pdMS_TO_TICKS(500));
+        } else {
+            ESP_LOGE("FINGERPRINT", "Capture error (0x%x)", res);
+            return res;
+        }
+    }
+}
+
 
 /**
  * @brief Upload the image in the image buffer.

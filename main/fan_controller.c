@@ -9,8 +9,8 @@
 void fans_init(void) {
 
     ledc_timer_config_t timer_conf = {
-        .speed_mode = LEDC_HIGH_SPEED_MODE,  //
-        .duty_resolution = FAN_PWM_RES,     // Bit resolution
+        .speed_mode = LEDC_HIGH_SPEED_MODE,  
+        .duty_resolution = FAN_PWM_RES,  
         .timer_num = FAN_PWM_TIMER,
         .freq_hz = FAN_PWM_FREQ_HZ,
         .clk_cfg = LEDC_AUTO_CLK
@@ -26,7 +26,6 @@ void fans_init(void) {
         .hpoint = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&channel_conf));
-
 }
 
 void fan_set_speed(float *temp_central, float *temp_exhaust) {

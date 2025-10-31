@@ -1,6 +1,6 @@
 #pragma once
 
-#define FAN_PWM_GPIO     25  // Replace with your actual pin
+#define FAN_PWM_GPIO     GPIO_NUM_32
 #define FAN_PWM_FREQ_HZ  25000
 #define FAN_PWM_TIMER    LEDC_TIMER_0
 #define FAN_PWM_MODE     LEDC_HIGH_SPEED_MODE

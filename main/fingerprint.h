@@ -74,6 +74,7 @@ esp_err_t R503_send_package(uint8_t *msg, uint8_t package_identifier, uint16_t l
 esp_err_t read_confirmation_code(uint8_t confirmation_code);
 esp_err_t R503_send_package_and_check_ack(uint8_t *cmd, uint16_t length);
 esp_err_t generate_image(void);
+esp_err_t wait_for_finger_and_capture(uint8_t buffer_id);
 esp_err_t upload_image(void);
 esp_err_t download_image(void);
 esp_err_t generate_char_file_from_image(uint8_t buffer_id);

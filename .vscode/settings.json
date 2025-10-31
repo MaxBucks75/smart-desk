@@ -1,13 +1,13 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
   "idf.espIdfPathWin": "C:\\Users\\Administrator\\esp\\v5.4.2\\esp-idf",
-  "idf.pythonInstallPath": "d:\\IDF_TOOLS_PATH\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.pythonInstallPath": "c:\\Users\\Administrator\\esp\\IDF_TOOLS_PATH\\tools\\idf-python\\3.11.2\\python.exe",
   "idf.openOcdConfigs": [
     "interface/ftdi/esp32_devkitj_v1.cfg",
     "target/esp32.cfg"
   ],
   "idf.portWin": "COM4",
-  "idf.toolsPathWin": "d:\\IDF_TOOLS_PATH",
+  "idf.toolsPathWin": "c:\\Users\\Administrator\\esp\\IDF_TOOLS_PATH",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32"
   },
@@ -33,6 +33,9 @@
     "i2c_slave.h": "c",
     "stdio.h": "c",
     "i2c.h": "c",
-    "temperature_sensor.h": "c"
+    "temperature_sensor.h": "c",
+    "height_controls.h": "c",
+    "fan_controller.h": "c",
+    "esp_mac.h": "c"
   }
 }
