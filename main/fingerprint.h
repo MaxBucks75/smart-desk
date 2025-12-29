@@ -3,6 +3,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "driver/uart.h"
+#include "esp_log.h"
+#include "esp_check.h"
+#include <string.h>
+#include "stdint.h"
+#include "esp_mac.h"
+#include "freertos/FreeRTOS.h"
 
 // Defaults
 #define R503_RECEIVE_TIMEOUT                    3000
@@ -13,10 +20,6 @@
 #define R503_CHAR_BUFFER_1                      0x01
 #define R503_CHAR_BUFFER_2                      0x02
 #define MAX_R503_PACKET_SIZE                    64
-
-// New auto-enroll and auto-identify commands (R503 v1.4.1+)
-#define R503_AUTO_ENROLL                        0x32  // Enroll: 6 step image capture
-#define R503_AUTO_IDENTIFY                      0x33  // Identify: capture + search
 
 // Commands
 #define R503_COMMAND_PACKET                     0x01
@@ -31,7 +34,11 @@
 #define R503_SEARCH                             0x04
 #define R503_DELETE_TEMPLATE                    0x0C
 #define R503_CONTROL_LED                        0x35
-#define R503_TEMPLATE_COUNT                     0x1F
+#define R503_READ_INDEX_TABLE                   0x1F
+#define R503_READ_SYSTEM_PARAMETERS             0x0F
+#define R503_LOAD_CHAR                          0x07
+#define R503_MATCH                              0x03
+#define R503_READ_SYSTEM_REGISTER               0x0F
 
 // LED options
 #define R503_LED_BREATHING                      0x01
@@ -70,21 +77,22 @@
 #define R503_TIMEOUT                            0xE9
 
 void R503_init(void);
+void uart_event_task(void *pvParameters);
+
+uint16_t R503_find_free_id(void);
+
 esp_err_t R503_send_package(uint8_t *msg, uint8_t package_identifier, uint16_t length);
-esp_err_t read_confirmation_code(uint8_t confirmation_code);
-esp_err_t R503_send_package_and_check_ack(uint8_t *cmd, uint16_t length);
+esp_err_t send_package_and_read_ack(uint8_t *cmd, uint16_t length);
 esp_err_t generate_image(void);
-esp_err_t wait_for_finger_and_capture(uint8_t buffer_id);
-esp_err_t upload_image(void);
-esp_err_t download_image(void);
+esp_err_t wait_for_finger_and_capture(uint8_t buffer_id, TickType_t timeout);
 esp_err_t generate_char_file_from_image(uint8_t buffer_id);
 esp_err_t register_model(void);
-esp_err_t upload_character_file(uint8_t buffer_id);
-esp_err_t download_character_file(uint8_t buffer_id);
-esp_err_t store_template(uint8_t buffer_id, uint16_t location_id);
-esp_err_t search_fingerprint(uint16_t start_page, uint16_t page_count);
+esp_err_t store_template(uint16_t location_id);
 esp_err_t delete_fingerprint(uint16_t location_id, uint16_t count);
-esp_err_t set_led(bool enable, uint8_t led_control, uint8_t led_speed, uint8_t led_color, uint8_t num_cycles);
-esp_err_t read_template_count(uint8_t page);
-esp_err_t R503_auto_enroll(uint8_t slot);
-esp_err_t R503_auto_identify(uint16_t start_page, uint16_t page_count);
+esp_err_t set_led(uint8_t led_control, uint8_t led_speed, uint8_t led_color, uint8_t num_cycles);
+esp_err_t read_index_table(uint8_t page);
+esp_err_t load_char(uint8_t buffer_id, uint16_t location_id);
+esp_err_t read_system_parameters(void);
+esp_err_t auto_enroll(void);
+esp_err_t auto_identify(void);
+esp_err_t read_confirmation_code(uint8_t confirmation_code);

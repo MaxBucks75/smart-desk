@@ -29,45 +29,29 @@ extern volatile uint16_t br_raw;
  * 
  * @param pvParameter 
  */
-void fingerprint_test_task(void *pvParam) {
+void fingerprint_power_task(void *pvParam) {
     
     esp_err_t err;
-    err = set_led(true, R503_LED_ALWAYS_ON, 0xFF, R503_LED_COLOR_RED, 0x00);
+    err = read_system_parameters();
     if (err != ESP_OK) {
-        ESP_LOGE("FINGERPRINT", "set_led is broken");
+        ESP_LOGE("FINGERPRINT", "read systen params is broken");
     }
-
-    ESP_LOGI("FINGERPRINT", "Waiting for finger...");
 
     while (1) {
 
-        err = generate_char_file_from_image(0x01);
-        while (generate_char_file_from_image(0x01) != ESP_OK) {
+        err = auto_identify();
 
+        ESP_LOGI("FINGERPRINT", "Checking if buffer 1 & 2 match 00 = match, 01 = err receiving, 08 = bufs don't match");
+        if (err == ESP_OK) {
+            ESP_LOGI("FINGERPRINT", "Shorting motherboard pins");
+            set_led(R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_RED, 0x00);
+            short_mobo_power_pins();
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
 
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        set_led(R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_PURPLE, 0x00);
 
-
-        printf("Inside of loop\n");
-        if (generate_image() == ESP_OK) {
-            generate_char_file_from_image(R503_CHAR_BUFFER_1);
-            printf("Stuck at gen char\n");
-            if (search_fingerprint(0, 100) == ESP_OK) {
-                // Blue for success
-                printf("Stuck at search\n");
-                set_led(true, R503_LED_BREATHING, 0x20, 0x05, 1);
-                printf("cant set led blue\n");
-            } else {
-                // Red for failure
-                set_led(true, R503_LED_BREATHING, 0x20, R503_LED_COLOR_RED, 1);
-                printf("cant set led red\n");
-            }
-            vTaskDelay(pdMS_TO_TICKS(1500));
-            set_led(true, R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_PURPLE, 0x00);
-            printf("cant set led purple\n");
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
 
 }
@@ -204,46 +188,22 @@ void power_test_task(void *pvParam) {
 void fingerprint_enroll_task(void *pvParam) {
     uint8_t slot = 1;
 
-    ESP_LOGI("FINGERPRINT", "Starting manual enroll for slot %d", slot);
-    set_led(true, R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_PURPLE, 0x00);
-
-    // First capture
-    wait_for_finger_and_capture(R503_CHAR_BUFFER_1);
-    ESP_LOGI("FINGERPRINT", "First scan done. Remove finger...");
-
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    wait_for_finger_and_capture(R503_CHAR_BUFFER_2);
-    ESP_LOGI("FINGERPRINT", "Second scan done.");
-
-    if (register_model() == ESP_OK) {
-        store_template(R503_CHAR_BUFFER_1, slot);
-        ESP_LOGI("FINGERPRINT", "Enroll SUCCESS at slot %d", slot);
-    } else {
-        ESP_LOGE("FINGERPRINT", "Enroll FAILED");
+    esp_err_t err;
+    err = read_system_parameters();
+    if (err != ESP_OK) {
+        ESP_LOGE("FINGERPRINT", "read systen params is broken");
     }
 
-    // Combine and store
-    if (register_model() != ESP_OK) {
-        ESP_LOGE("FINGERPRINT", "Register model failed");
-        goto fail;
+    while (1) {
+
+        err = auto_enroll();
+        if (err == ESP_OK) {
+            set_led(R503_LED_BREATHING, 0x40, R503_LED_COLOR_PURPLE, 0x00);
+            vTaskDelay(pdMS_TO_TICKS(60000));
+        }
+
     }
-    if (store_template(R503_CHAR_BUFFER_1, slot) != ESP_OK) {
-        ESP_LOGE("FINGERPRINT", "Store template failed");
-        goto fail;
-    }
 
-    ESP_LOGI("FINGERPRINT", "Enroll SUCCESS at slot %d", slot);
-    set_led(true, R503_LED_BREATHING, 0x40, R503_LED_COLOR_BLUE, 2);
-    goto done;
-
-fail:
-    set_led(true, R503_LED_BREATHING, 0x40, R503_LED_COLOR_RED, 2);
-
-done:
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    set_led(true, R503_LED_ALWAYS_ON, 0x40, R503_LED_COLOR_PURPLE, 0x00);
-    vTaskDelete(NULL);
 }
 
 void init_debug_tasks(void) {
@@ -263,7 +223,7 @@ void init_debug_tasks(void) {
 
     // Print menu
     printf("\n*** SMART DESK DEBUG MENU ***\n");
-    printf("1. Run Fingerprint Test\n");
+    printf("1. Run Fingerprint Power Test\n");
     printf("2. Run Force Sensor Test\n");
     printf("3. Run Temp Sensor Test\n");
     printf("4. Run Fan Test\n");
@@ -275,7 +235,7 @@ void init_debug_tasks(void) {
 
     // Wait for input
     char c = '0';
-    while (c < '1' || c > '8') {
+    while (c < '1' || c > '9') {
         int len = uart_read_bytes(UART_NUM_0, (uint8_t*)&c, 1, pdMS_TO_TICKS(5000));
         if (len > 0) {
             printf("%c\n", c);
@@ -284,7 +244,7 @@ void init_debug_tasks(void) {
 
     switch (c) {
         case '1':
-            xTaskCreate(fingerprint_test_task, "fp_test", 6144, NULL, 5, NULL);
+            xTaskCreate(fingerprint_power_task, "fp_test", 6144, NULL, 5, NULL);
             break;
         case '2':
             xTaskCreate(force_sensor_test_task, "force_test", 4096, NULL, 5, NULL);
@@ -301,7 +261,7 @@ void init_debug_tasks(void) {
         case '6':
             xTaskCreate(vibrator_test_task, "vibrator_test", 4096, NULL, 5, NULL);
             break;
-        case '7':
+        case '7': 
             xTaskCreate(power_test_task, "power_test", 4096, NULL, 5, NULL);
             break;
         case '8':

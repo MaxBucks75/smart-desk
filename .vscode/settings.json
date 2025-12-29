@@ -36,6 +36,7 @@
     "temperature_sensor.h": "c",
     "height_controls.h": "c",
     "fan_controller.h": "c",
-    "esp_mac.h": "c"
+    "esp_mac.h": "c",
+    "bit": "c"
   }
 }

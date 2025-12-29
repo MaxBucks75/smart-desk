@@ -52,6 +52,9 @@ void adc_continuous_init(void) {
 
     ESP_ERROR_CHECK(adc_continuous_config(adc_handle, &adc_config));
     ESP_ERROR_CHECK(adc_continuous_start(adc_handle));
+
+    xTaskCreate(adc_reader_task, "adc_reader", 4096, NULL, 2, NULL);
+
 }
 
 void adc_reader_task(void *arg) {

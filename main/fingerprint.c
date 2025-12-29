@@ -1,11 +1,5 @@
 #include "fingerprint.h"
-#include "driver/uart.h"
-#include "esp_log.h"
-#include "esp_check.h"
-#include <string.h>
-#include "stdint.h"
-#include "esp_mac.h"
-#include "freertos/FreeRTOS.h"
+
 
 // Uncomment to print debug statements
 #define CONFIG_FP_DEBUG
@@ -23,6 +17,20 @@
 
 const uart_port_t uart_num = UART_NUM_2;
 const int R503_buffer_size = (512 * 2); // Allocate buffer size of 64 bytes for ~16 byte UART messages
+
+// Holds the value from the last R503 rx transmission
+static uint8_t R503_rx_buf[MAX_R503_PACKET_SIZE];
+static uint16_t R503_rx_length;
+static uint16_t R503_rx_index;
+
+QueueHandle_t uart_queue;              // UART event queue
+static QueueHandle_t response_queue;   // R503 data queue
+
+// System status register values
+static bool busy;
+static bool pass;
+static bool password;
+static bool image_buffer_contains_valid_image;
 
 /**
  * @brief Initializes UART communication with the R503 fingerprint sensor.
@@ -46,11 +54,59 @@ void R503_init(void) {
     ESP_ERROR_CHECK(uart_set_pin(uart_num, 17, 16, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
     // Install UART driver on port 2, TX size 32 bytes, RX size of 32 bytes, event queue of 10 stored in R503 queue, and 0 interrupt flags.
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, 1024, 1024, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_driver_install(uart_num, 1024, 1024, 10, &uart_queue, 0));
 
-    uart_flush_input(uart_num); // Ensure the UART is cleared
+    uart_flush_input(uart_num); // clear UART
+
+    response_queue = xQueueCreate(1, sizeof(size_t));
+
+    xTaskCreate(uart_event_task, "uart_event_task", 4096, NULL, 12, NULL); // Start the UART task to poll for response
 
     ESP_LOGI(TAG, "UART initialized on TX=17, RX=16 @57600");
+
+}
+
+/**
+ * 
+ */
+void uart_event_task(void *pvParameters) {
+    
+    uart_event_t event;
+
+    while (1) {
+
+        if (xQueueReceive(uart_queue, &event, portMAX_DELAY)) {
+            
+            // Wait for UART data to be received
+            if (event.type == UART_DATA) {
+
+                // Get the number of bytes from the incoming receive event
+                int length = uart_read_bytes(uart_num, (R503_rx_buf + R503_rx_index), event.size, portMAX_DELAY);
+
+                // Increment the index of the current message we are building
+                R503_rx_index += length;
+
+                // Wait until the minimum number of bytes have arrived
+                if (R503_rx_index >= 9) {
+
+                    // Get the total length of the ack packet (data from word at index 7, plus the 9 non-payload bytes)
+                    uint16_t payload_length = ((R503_rx_buf[7] << 8) | R503_rx_buf[8]);
+                    uint16_t total_length = payload_length + 9;
+
+                    // Wait until all bytes have been received
+                    if (R503_rx_index >= total_length) {
+                        size_t packet_length = total_length;                   
+                        R503_rx_index = 0;                                  // Reset local index variable
+                        xQueueOverwrite(response_queue, &packet_length);    // Notify command task we done!
+                    }
+
+                }
+
+            }
+
+        }
+
+    }
 
 }
 
@@ -93,6 +149,7 @@ esp_err_t R503_send_package(uint8_t *msg, uint8_t package_identifier, uint16_t l
     package[index++] = checksum & 0xFF;
 
     #ifdef CONFIG_FP_DEBUG
+    // Print the fully assembled package
     ESP_LOGI(TAG, "Writing %d bytes", index);
     for (int i = 0; i < index; i++) {
         printf("%02X ", package[i]);
@@ -100,55 +157,471 @@ esp_err_t R503_send_package(uint8_t *msg, uint8_t package_identifier, uint16_t l
     printf("\n");
     #endif
 
-    // Write
+    // Write the full package
     esp_err_t ret = uart_write_bytes(uart_num, (const char*)package, index);
     if (ret < 0) return ESP_FAIL;
 
     return uart_wait_tx_done(uart_num, 100);
 }
 
+// /**
+//  * @brief Reads a response packet from the R503 sensor into a buffer.
+//  * 
+//  * @param buffer Buffer to hold received data.
+//  * @return Number of bytes read.
+//  */
+// static int read_package(uint8_t *buffer) {
+
+//     if (!buffer) return ESP_ERR_INVALID_ARG;
+
+//     uint8_t temp_buf[9];
+
+//     int read_len = uart_read_bytes(uart_num, temp_buf, sizeof(temp_buf), pdMS_TO_TICKS(500));
+    
+//     // Check that the header is the correct size
+//     if (read_len != sizeof(temp_buf)) {
+//         ESP_LOGE(TAG, "Timeout or short header (%d bytes)", read_len);
+//         return ESP_FAIL;
+//     }
+
+//     // Check that the header is correct 0xEF01
+//     if (temp_buf[0] != 0xEF || temp_buf[1] != 0x01) {
+//         ESP_LOGE(TAG, "Invalid header: %02X %02X", temp_buf[0], temp_buf[1]);
+//         return ESP_FAIL;
+//     }
+
+//     // Parse payload length (last two bytes of header)
+//     uint16_t length = (temp_buf[7] << 8) | temp_buf[8];
+
+//     int total_len = sizeof(temp_buf) + length;
+//     memcpy(buffer, temp_buf, sizeof(temp_buf));
+
+//     ESP_LOGI(TAG, "Got full packet (%d bytes)", total_len);
+
+//     // Read rest of packet to check if the length we receive matches what we sent
+//     int payload_read = uart_read_bytes(uart_num, buffer + sizeof(temp_buf), length, pdMS_TO_TICKS(500));
+//     if (payload_read != length) {
+//         ESP_LOGE(TAG, "Timeout reading payload (%d/%d)", payload_read, length);
+//         return ESP_FAIL;
+//     }
+
+//     #ifdef CONFIG_FP_DEBUG
+//     // Print the raw packet for debugging
+//         for (int i = 0; i < total_len; i++) printf("%02X ", buffer[i]);
+//         printf("\n");
+//     #endif
+
+//     return total_len;
+// }
+
+
 /**
- * @brief Reads a response packet from the R503 sensor into a buffer.
- * 
- * @param buffer Buffer to hold received data.
- * @return Number of bytes read.
+ * @brief Sends an R503 command, reads the ACK, and logs confirmation code.
+ *
+ * @param cmd Pointer to command bytes
+ * @param length Length of command
+ * @return esp_err_t ESP_OK if success (0x00), otherwise ESP_FAIL
  */
-static int R503_read_package(uint8_t *buffer) {
+esp_err_t send_package_and_read_ack(uint8_t *cmd, uint16_t length) {
 
-    if (!buffer) return ESP_ERR_INVALID_ARG;
+    // Clear queue
+    memset(R503_rx_buf, 0, sizeof(R503_rx_buf));    // Clear the RX buffer
+    R503_rx_index = 0;                              // Clear the index variable
+    xQueueReset(response_queue);                    // Send notifcation to uart event task
 
-    uint8_t temp_buf[9];
-    int read_len = uart_read_bytes(uart_num, temp_buf, sizeof(temp_buf), pdMS_TO_TICKS(500));
-    if (read_len != sizeof(temp_buf)) {
-        ESP_LOGE(TAG, "Timeout or short header (%d bytes)", read_len);
+    // Send the command
+    esp_err_t err = R503_send_package(cmd, R503_COMMAND_PACKET, length);
+    if (err != ESP_OK) return err;
+
+    // Wait for the R503 response packet
+    size_t rx_length;
+    if (!xQueueReceive(response_queue, &rx_length, pdMS_TO_TICKS(2000))) {
+        ESP_LOGE(TAG, "Timeout waiting for ACK packet");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // Ensure the header is correct (0xEF01)
+    if (R503_rx_buf[0] != 0xEF || R503_rx_buf[1] != 0x01) {
+        ESP_LOGE(TAG, "Invalid header: %02X %02X", R503_rx_buf[0], R503_rx_buf[1]);
         return ESP_FAIL;
     }
 
-    if (temp_buf[0] != 0xEF || temp_buf[1] != 0x01) {
-        ESP_LOGE(TAG, "Invalid header: %02X %02X", temp_buf[0], temp_buf[1]);
+    // Ensure the identifier nibble is correct (0x07)
+    if (R503_rx_buf[6] != R503_ACKKNOWLEDGE_PACKAGE_IDENTIFIER) {
+        ESP_LOGE(TAG, "Invalid ACK packet identifier: %02X", R503_rx_buf[6]);
         return ESP_FAIL;
     }
 
-    // Parse payload length (last two bytes of header)
-    uint16_t length = (temp_buf[7] << 8) | temp_buf[8];
+    return ESP_OK;
 
-    int total_len = sizeof(temp_buf) + length;
-    memcpy(buffer, temp_buf, sizeof(temp_buf));
+}
 
-    // Read rest of packet (length bytes = payload+checksum)
-    int payload_read = uart_read_bytes(uart_num, temp_buf + sizeof(temp_buf), length, pdMS_TO_TICKS(500));
-    if (payload_read != length) {
-        ESP_LOGE(TAG, "Timeout reading payload (%d/%d)", payload_read, length);
+/**
+ * @brief Detecting finger and store the detected finger in the image buffer.
+ * 
+ * @return esp_err_t 
+ */
+esp_err_t generate_image(void) {
+
+    uint8_t cmd = R503_GENERATE_IMAGE; 
+
+    if (send_package_and_read_ack(&cmd, 1) != ESP_OK) {
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Got full packet (%d bytes)", total_len);
-    #ifdef CONFIG_FP_DEBUG
-        for (int i = 0; i < total_len; i++) printf("%02X ", buffer[i]);
-        printf("\n");
-    #endif
+    if (R503_rx_buf[9] == R503_SUCCESS) {
+        return ESP_OK;
+    } else if (R503_rx_buf[9] == R503_NO_FINGER) {
+        return ESP_ERR_NOT_FOUND;
+    } 
 
-    return total_len;
+    ESP_LOGE(TAG, "Generate image failed error code: 0x%02X", R503_rx_buf[9]);
+    return ESP_FAIL;
+    
+}
+
+
+
+esp_err_t wait_for_finger_and_capture(uint8_t buffer_id, TickType_t timeout) {
+
+    TickType_t start_time = xTaskGetTickCount();
+
+    // Wait for attempt to generate image from start_time -> start_time + timeout
+    while ((xTaskGetTickCount() - start_time) < timeout) {
+
+        esp_err_t err = generate_image();
+
+        // If we get a good image, put it into the specified buffer
+        if (err == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            return generate_char_file_from_image(buffer_id);
+        }
+
+        // If we get no finger, wait then try again
+        if (err == ESP_ERR_NOT_FOUND) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+
+    }
+
+    // If it takes too long to capture the finger, timeout
+    return ESP_ERR_TIMEOUT;
+
+}
+
+/**
+ * @brief Generate character file from image
+ * 
+ * @param buffer_id selects the character buffer to save to 1 = buffer_1 >1 = buffer_2
+ * @return esp_err_t 
+ */
+esp_err_t generate_char_file_from_image(uint8_t buffer_id) {
+
+    uint8_t command[2] = {R503_GENERATE_CHAR_FILE_FROM_IMAGE, buffer_id}; 
+
+    if (send_package_and_read_ack(command, 2) != ESP_OK)
+        return ESP_FAIL;
+
+    uint8_t code = R503_rx_buf[9];
+
+    switch (code)
+    {
+        case R503_SUCCESS:       return ESP_OK;
+        case R503_IMAGE_MESSY:   return ESP_ERR_INVALID_STATE;
+        default:
+            ESP_LOGE(TAG, "image2Tz failed: 0x%02X", code);
+            return ESP_FAIL;
+    }
+
+}
+
+/**
+ * @brief Combine information of character files from character buffer 1 and 2
+ * and generate template which is stored back into character buffers.
+ * 
+ * @return esp_err_t 
+ */
+esp_err_t register_model(void) {
+
+    uint8_t cmd = R503_REGISTER_MODEL; 
+
+    if (send_package_and_read_ack(&cmd, 1) != ESP_OK)
+        return ESP_FAIL;
+
+    return (R503_rx_buf[9] == R503_SUCCESS) ? ESP_OK : ESP_FAIL;
+
+}
+
+/**
+ * @brief Store the template of either buffer into a location in flash library.
+ * 
+ * @param buffer_id selects the higher or lower buffer
+ * @param location_id The index that the template will be saved to
+ * @return esp_err_t 
+ */
+esp_err_t store_template(uint16_t location_id) {
+ 
+    uint8_t cmd[4];
+    cmd[0] = R503_STORE;
+    cmd[1] = R503_CHAR_BUFFER_1;
+    cmd[2] = (location_id >> 8) & 0xFF;
+    cmd[3] = location_id & 0xFF;
+ 
+    return send_package_and_read_ack(cmd, 4);
+
+}
+
+
+
+/**
+ * @brief Deletes a stored fingerprint template.
+ * 
+ * @param location_id Template ID to delete
+ * @param count Number of templates to delete (usually 1)
+ * @return esp_err_t ESP_OK if successful
+ */
+esp_err_t delete_fingerprint(uint16_t location_id, uint16_t count) {
+
+    uint8_t cmd[5] = {
+        R503_DELETE_TEMPLATE,
+        (location_id >> 8) & 0xFF,
+        location_id & 0xFF,
+        (count >> 8) & 0xFF,
+        count & 0xFF
+    };
+
+    return send_package_and_read_ack(cmd, 5);
+
+}
+
+/**
+ * @brief Enables or disables the fingerprint LED ring.
+ * 
+ * @param enable True to turn on, false to turn off
+ * @return esp_err_t ESP_OK if successful
+ */
+esp_err_t set_led(uint8_t led_control, uint8_t led_speed, uint8_t led_color, uint8_t num_cycles) {
+
+    uint8_t cmd[5] = {
+        R503_CONTROL_LED,
+        led_control,           // Controls the current effect (0x01 - 0x06)
+        led_speed,             // 0x00 - 0xFF for light breathing controls
+        led_color,             // LED color
+        num_cycles             // 0x00 - 0xFF for number of cycles effect will play for 0 -> infinite
+    };
+
+    return send_package_and_read_ack(cmd, 5);
+
+}
+
+/**
+ * @brief Requests the number of stored fingerprint templates.
+ * 
+ * @param page determines page to check (groups of 128 fingerprints)
+ * @return esp_err_t ESP_OK if successful
+ */
+esp_err_t read_index_table(uint8_t page) {
+    uint8_t cmd[2] = {R503_READ_INDEX_TABLE, page};
+    return send_package_and_read_ack(cmd, 2);
+}
+
+//
+esp_err_t load_char(uint8_t buffer_id, uint16_t location_id) {
+
+    uint8_t cmd[4] = {
+        R503_LOAD_CHAR,
+        buffer_id,
+        (location_id >> 8) & 0xFF,
+        location_id & 0xFF
+    };
+
+    return send_package_and_read_ack(cmd, 4);
+
+}
+
+esp_err_t read_system_parameters(void) {
+
+    uint8_t cmd = R503_READ_SYSTEM_REGISTER;
+    esp_err_t err = send_package_and_read_ack(&cmd, 1);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+    
+    // status registers from the R503
+    uint16_t system_status_reg = ((uint16_t)R503_rx_buf[10] << 8 | R503_rx_buf[11]);
+    uint16_t system_id_code = ((uint16_t)R503_rx_buf[12] << 8 | R503_rx_buf[13]);
+    uint16_t finger_library_size = ((uint16_t)R503_rx_buf[14] << 8 | R503_rx_buf[15]);
+    uint16_t security_level = ((uint16_t)R503_rx_buf[16] << 8 | R503_rx_buf[17]);
+    uint32_t device_address = ((uint32_t)R503_rx_buf[18] << 24 | (uint32_t)R503_rx_buf[19] << 16 | (uint32_t)R503_rx_buf[20] << 8 | R503_rx_buf[21]);
+    uint16_t data_packet_size = ((uint16_t)R503_rx_buf[22] << 8 | R503_rx_buf[23]);
+    uint16_t baud_rate_N = ((uint16_t)R503_rx_buf[24] << 8 | R503_rx_buf[25]);
+
+    // Masks for the system status register
+    // busy = 0x0001;
+    // pass = 0x0002;
+    // password = 0x0004;
+    // image_buffer_contains_valid_image = 0x0008;
+
+    busy = system_status_reg & 0x0001;
+    pass = system_status_reg & 0x0002;
+    password = system_status_reg & 0x0004;
+    image_buffer_contains_valid_image = system_status_reg & 0x0008;
+
+    int baud_rate = baud_rate_N * 9600;
+
+    ESP_LOGI(TAG, "------------SYSTEM PARAMETERS-------------");
+    ESP_LOGI(TAG, "Busy: %d", busy);
+    ESP_LOGI(TAG, "Pass: %d", pass);
+    ESP_LOGI(TAG, "Password: %d", password);
+    ESP_LOGI(TAG, "Image buffer contains valid image: %d", image_buffer_contains_valid_image);
+    ESP_LOGI(TAG, "System status register: %04X", system_status_reg);
+    ESP_LOGI(TAG, "System id code: %04X", system_id_code);
+    ESP_LOGI(TAG, "Finger library size: %04X", finger_library_size);
+    ESP_LOGI(TAG, "Security level: %04X", security_level);
+    ESP_LOGI(TAG, "Device address: 0x%08lX", device_address);
+    ESP_LOGI(TAG, "Data packet size: %04X", data_packet_size);
+    ESP_LOGI(TAG, "Baud rate: %d", baud_rate);
+
+    return err;
+
+}
+
+
+uint16_t R503_find_free_id(void) {
+
+    // Parse all 4 pages
+    for (uint8_t page_index = 0; page_index < 4; page_index++) {
+
+        // Send the command to read the index table
+        if (read_index_table(page_index) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read page: %02X", page_index);
+            return -1;
+        }
+
+        // Get the pointer for the starting byte of the 32 byte page
+        uint8_t *bitmap = &R503_rx_buf[10];
+
+        // Parse the 32 bytes for an available template
+        for (int i = 0; i < 32; i++) {
+
+            uint8_t byte = bitmap[i];
+
+            for (int bit = 0; bit < 8; bit++) {
+
+                // Check byte to find the first zero
+                if (!(byte & (1 << bit))) {
+                    uint16_t valid_id = page_index * 256 + i * 8 + bit;
+                    return valid_id;
+                }
+            }
+
+        }
+
+    }
+
+    ESP_LOGW(TAG, "All ids are full!");
+    return -1;
+
+}
+
+esp_err_t auto_enroll(void) {
+
+    esp_err_t err;
+
+    ESP_LOGI(TAG, "Beginning auto enroll, please place finger on sensor");
+    set_led(R503_LED_BREATHING, 0xC0, R503_LED_COLOR_BLUE, 0x00);
+
+    // Capture fingerprint for the first time
+    if (wait_for_finger_and_capture(R503_CHAR_BUFFER_1, pdMS_TO_TICKS(10000)) != ESP_OK) {
+        ESP_LOGE(TAG, "Timeout waiting for finger or messy image");
+        return ESP_ERR_TIMEOUT;
+    } else {
+        ESP_LOGI(TAG, "First image taken! Please remove finger");
+        set_led(R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_RED, 0x00);
+    }
+
+    int iterations = 0;
+    // Continuously generate image until a finger isn't recognized or we've tried generating an image 10 times
+    do {
+        vTaskDelay(pdMS_TO_TICKS(300));
+        err = generate_image();
+        iterations++;
+    } while (err == ESP_OK && iterations < 10);
+
+    if (iterations >= 10) {
+        ESP_LOGI(TAG, "Failed to remove finger from sensor");
+        return ESP_ERR_TIMEOUT;
+    } else {
+        ESP_LOGI(TAG, "Please place the same finger on sensor once more");
+        set_led(R503_LED_BREATHING, 0xC0, R503_LED_COLOR_BLUE, 0x00);
+    }
+
+    // Capture fingerprint for the second time
+    if (wait_for_finger_and_capture(R503_CHAR_BUFFER_2, pdMS_TO_TICKS(10000)) != ESP_OK) {
+        ESP_LOGE(TAG, "Timeout waiting for finger or messy image");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    ESP_LOGI(TAG, "Second image taken! Attempting to store...");
+
+    // Register model
+    if (register_model() != ESP_OK) {
+        ESP_LOGE(TAG, "Register model failed, fingerprints don't match");
+        return ESP_FAIL;
+    }
+
+    // Find the next available id to store fingerprint
+    int id = R503_find_free_id();
+    if (id == -1) {
+        return ESP_FAIL;
+    }
+
+    // Store the fingerprint at the specified id
+    if (store_template((uint16_t)id) != ESP_OK) {
+        ESP_LOGE(TAG, "Store template failed");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Fingerprint successfully enrolled at id: %04X", (uint16_t)id);
+
+    return ESP_OK;
+
+}
+
+
+esp_err_t auto_identify(void) {
+
+    // Collect finger and store in char buffer one
+    if (wait_for_finger_and_capture(R503_CHAR_BUFFER_1, pdMS_TO_TICKS(10000)) != ESP_OK) {
+        ESP_LOGE(TAG, "Timeout waiting for finger or messy image");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    uint8_t cmd[6] = {
+        R503_SEARCH,
+        R503_CHAR_BUFFER_1,
+        0x00, 0x00, // Bytes 2 and 3 of command are the start page parameter (0x0000)
+        0xFF, 0xFF  // Bytes 4 and 5 of command are the end page parameter (0xFFFF)
+    }; 
+
+    send_package_and_read_ack(cmd, 6);
+
+    if (R503_rx_buf[9] == R503_SUCCESS) {
+        uint16_t page_id = (R503_rx_buf[10] << 8 | R503_rx_buf[11]);
+        uint16_t match_score = (R503_rx_buf[12] << 8 | R503_rx_buf[13]);
+        ESP_LOGI(TAG, "Fingerprint match found at page ID: 0x%04X, with match score: 0x%04X", page_id, match_score);
+        return ESP_OK;
+
+    } else if (R503_rx_buf[9] == R503_NO_MATCH_IN_LIBRARY) {
+        ESP_LOGI(TAG, "Fingerprint match not found in library");
+        return ESP_ERR_NOT_FOUND;
+
+    } else {
+        return ESP_FAIL;
+    }
+
 }
 
 
@@ -164,7 +637,6 @@ esp_err_t read_confirmation_code(uint8_t confirmation_code) {
         case R503_SUCCESS:
             ESP_LOGI(TAG, "Fingerprint: Success");
             return ESP_OK;
-
         case R503_ERROR_RECEIVING_PACKET:
             ESP_LOGE(TAG, "Fingerprint: Error receiving packet");
             break;
@@ -211,317 +683,4 @@ esp_err_t read_confirmation_code(uint8_t confirmation_code) {
 
     return ESP_FAIL;
 
-}
-
-
-/**
- * @brief Sends an R503 command, reads the ACK, and logs confirmation code.
- *
- * @param cmd Pointer to command bytes
- * @param length Length of command
- * @return esp_err_t ESP_OK if success (0x00), otherwise ESP_FAIL
- */
-esp_err_t R503_send_package_and_check_ack(uint8_t *cmd, uint16_t length) {
-
-    uint8_t response[MAX_R503_PACKET_SIZE];
-
-    // Clear out any stray RX data
-    uart_flush_input(uart_num);
-
-    // Send the command
-    esp_err_t err = R503_send_package(cmd, R503_COMMAND_PACKET, length);
-    if (err != ESP_OK) return err;
-
-    // Wait a few ms to let the sensor respond
-    vTaskDelay(pdMS_TO_TICKS(30));
-
-    // Read back the ACK packet and check that it's valid
-    if (R503_read_package(response) < 0) return ESP_FAIL;
-    if (response[6] != R503_ACKKNOWLEDGE_PACKAGE_IDENTIFIER) {
-        ESP_LOGE(TAG, "Expected ACK, got PID=0x%02X", response[6]);
-        return ESP_FAIL;
-    }
-    if (response[9] != R503_SUCCESS) {
-        ESP_LOGE(TAG, "Command NACK (0x%02X)", response[9]);
-        return ESP_FAIL;
-    }
-
-    // Wait then read the response packet and check that it's valid
-    vTaskDelay(pdMS_TO_TICKS(30));
-    if (R503_read_package(response) < 0) return ESP_FAIL;
-    if (response[9] != R503_SUCCESS) {
-        ESP_LOGE(TAG, "Operation failed (0x%02X)", response[9]);
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-
-}
-
-/**
- * @brief Detecting finger and store the detected finger in the image buffer.
- * 
- * @return esp_err_t 
- */
-esp_err_t generate_image(void) {
-    uint8_t cmd = R503_GENERATE_IMAGE; 
-    uint8_t response[MAX_R503_PACKET_SIZE];
-
-    uart_flush_input(uart_num);
-    if (R503_send_package(&cmd, R503_COMMAND_PACKET, 1) != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(50));
-    int len = R503_read_package(response);
-    if (len < 0) return ESP_FAIL;
-
-    uint8_t conf = response[9]; // confirmation code
-    if (conf == R503_SUCCESS) {
-        return ESP_OK;
-    } else if (conf == R503_NO_FINGER) {
-        return ESP_ERR_NOT_FOUND;   // signal "no finger"
-    } else {
-        ESP_LOGE("FINGERPRINT", "GenerateImage failed, code=0x%02X", conf);
-        return ESP_FAIL;
-    }
-}
-
-esp_err_t wait_for_finger_and_capture(uint8_t buffer_id) {
-    while (1) {
-        esp_err_t res = generate_image();
-        if (res == ESP_OK) {
-            ESP_LOGI("FINGERPRINT", "Image captured, converting...");
-            vTaskDelay(pdMS_TO_TICKS(500));  // longer settle time
-
-            esp_err_t char_res = generate_char_file_from_image(buffer_id);
-            if (char_res == ESP_OK) {
-                ESP_LOGI("FINGERPRINT", "Image converted into buffer %d", buffer_id);
-                return ESP_OK;
-            } else {
-                ESP_LOGW("FINGERPRINT", "Image2Tz failed (bad image), retrying...");
-                vTaskDelay(pdMS_TO_TICKS(1000));
-            }
-        } else if (res == ESP_ERR_NOT_FOUND) {
-            ESP_LOGI("FINGERPRINT", "No finger, waiting...");
-            vTaskDelay(pdMS_TO_TICKS(500));
-        } else {
-            ESP_LOGE("FINGERPRINT", "Capture error (0x%x)", res);
-            return res;
-        }
-    }
-}
-
-
-/**
- * @brief Upload the image in the image buffer.
- * 
- * @return esp_err_t 
- */
-esp_err_t upload_image(void) {
-    uint8_t cmd = R503_UPLOAD_IMAGE; 
-    return R503_send_package_and_check_ack(&cmd, 1);
-}
-
-/**
- * @brief Download the image from the library to image buffer.
- * 
- * @return esp_err_t 
- */
-esp_err_t download_image(void) {
-    uint8_t cmd = R503_DOWNLOAD_IMAGE; 
-    return R503_send_package_and_check_ack(&cmd, 1);
-}
-
-/**
- * @brief Generate character file from image
- * 
- * @param buffer_id selects the character buffer to save to 1 = buffer_1 >1 = buffer_2
- * @return esp_err_t 
- */
-esp_err_t generate_char_file_from_image(uint8_t buffer_id) {
-    uint8_t cmd[] = {R503_GENERATE_CHAR_FILE_FROM_IMAGE, buffer_id}; 
-    return R503_send_package_and_check_ack(cmd, 2);
-}
-
-/**
- * @brief Combine information of character files from character buffer 1 and 2
- * and generate template which is stored back into character buffers.
- * 
- * @return esp_err_t 
- */
-esp_err_t register_model(void) {
-    uint8_t cmd = R503_REGISTER_MODEL; 
-    return R503_send_package_and_check_ack(&cmd, 1);
-}
-
-/**
- * @brief Uploads the character fle from buffers 1 and 2 to the library
- * 
- * @param buffer_id selects the character buffer to upload to 1 = buffer_1 >1 = buffer_2
- * @return esp_err_t 
- */
-esp_err_t upload_character_file(uint8_t buffer_id) {
-    uint8_t cmd[] = {R503_UPLOAD_CHARACTER_FILE, buffer_id};
-    return R503_send_package_and_check_ack(cmd, 2);
-}
-
-/**
- * @brief Uploads the character fle from buffers 1 and 2 to the library
- * 
- * @param buffer_id selects the character buffer to upload to 1 = buffer_1 >1 = buffer_2
- * @return esp_err_t 
- */
-esp_err_t download_character_file(uint8_t buffer_id) {
-    uint8_t cmd[] = {R503_DOWNLOAD_CHARACTER_FILE, buffer_id};
-    return R503_send_package_and_check_ack(cmd, 2);
-}
-
-/**
- * @brief Store the template of either buffer into a location in flash library.
- * 
- * @param buffer_id selects the higher or lower buffer
- * @param location_id The index that the template will be saved to
- * @return esp_err_t 
- */
-esp_err_t store_template(uint8_t buffer_id, uint16_t location_id) {
- 
-    uint8_t cmd[4];
-    cmd[0] = R503_STORE;
-    cmd[1] = buffer_id;
-    cmd[2] = (location_id >> 8) & 0xFF;
-    cmd[3] = location_id & 0xFF;
- 
-    return R503_send_package_and_check_ack(cmd, 4);
-
-}
-
-/**
- * @brief Searches the fingerprint against stored templates (buffer 1).
- * 
- * @param start_page Starting page ID (usually 0)
- * @param page_count Number of pages to search (e.g. 100)
- * @return esp_err_t ESP_OK if match found, ESP_FAIL otherwise
- */
-esp_err_t search_fingerprint(uint16_t start_page, uint16_t page_count) {
-    uint8_t cmd[5] = {
-        R503_SEARCH,
-        0x01,  // Use buffer 1
-        (start_page >> 8) & 0xFF,
-        start_page & 0xFF,
-        page_count
-    };
-    return R503_send_package_and_check_ack(cmd, 5);
-}
-
-/**
- * @brief Deletes a stored fingerprint template.
- * 
- * @param location_id Template ID to delete
- * @param count Number of templates to delete (usually 1)
- * @return esp_err_t ESP_OK if successful
- */
-esp_err_t delete_fingerprint(uint16_t location_id, uint16_t count) {
-    uint8_t cmd[5] = {
-        R503_DELETE_TEMPLATE,
-        (location_id >> 8) & 0xFF,
-        location_id & 0xFF,
-        (count >> 8) & 0xFF,
-        count & 0xFF
-    };
-    return R503_send_package_and_check_ack(cmd, 5);
-}
-
-/**
- * @brief Enables or disables the fingerprint LED ring.
- * 
- * @param enable True to turn on, false to turn off
- * @return esp_err_t ESP_OK if successful
- */
-esp_err_t set_led(bool enable, uint8_t led_control, uint8_t led_speed, uint8_t led_color, uint8_t num_cycles) {
-
-    uint8_t cmd[5] = {
-        R503_CONTROL_LED,
-        led_control,           // control code: turn on/off
-        led_speed,             // 0x00 - 0xFF for light breathing controls
-        led_color,             // LED color
-        num_cycles             // 0x00 - 0xFF for number of breatthing cycles
-    };
-    return R503_send_package_and_check_ack(cmd, 5);
-
-}
-
-/**
- * @brief Requests the number of stored fingerprint templates.
- * 
- * @param page determines page to check (groups of 128 fingerprints)
- * @return esp_err_t ESP_OK if successful
- */
-esp_err_t read_template_count(uint8_t page) {
-    uint8_t cmd[2] = {R503_TEMPLATE_COUNT, page};
-    return R503_send_package_and_check_ack(cmd, 2);
-}
-
-/**
- * @brief Let the module handle the entire enroll sequence (detect, char, reg, store)
- * @param slot  the template ID to save into (0…255)
- */
-esp_err_t R503_auto_enroll(uint8_t slot) {
-    uint8_t cmd[] = {
-        R503_AUTO_ENROLL,
-        0x00, slot,
-        0x01, // enroll once
-        0x01  // store into buffer 1
-    };
-    uint8_t response[MAX_R503_PACKET_SIZE];
-    // send enroll command
-    if (R503_send_package(cmd, R503_COMMAND_PACKET, sizeof(cmd)) != ESP_OK) {
-        return ESP_FAIL;
-    }
-    // read initial ACK packet
-    if (R503_read_package(response) < 0 || response[9] != R503_SUCCESS) {
-        ESP_LOGE(TAG, "Auto‑enroll ACK failed (code=0x%02X)", response[9]);
-        return ESP_FAIL;
-    }
-    // read final confirmation packet
-    if (R503_read_package(response) < 0 || response[9] != R503_SUCCESS) {
-        ESP_LOGE(TAG, "Auto‑enroll result failed (code=0x%02X)", response[9]);
-        return ESP_FAIL;
-    }
-    return ESP_OK;
-}
-
-/**
- * @brief Let the module handle entire 1:N match sequence
- * @param start_page first ID to scan (usually 0)
- * @param page_count how many IDs to scan
- */
-esp_err_t R503_auto_identify(uint16_t start_page, uint16_t page_count) {
-    uint8_t cmd[] = {
-        R503_AUTO_IDENTIFY,
-        0x01, // use buffer 1
-        (start_page >> 8) & 0xFF, start_page & 0xFF,
-        (page_count >> 8) & 0xFF, page_count & 0xFF
-    };
-    uint8_t response[MAX_R503_PACKET_SIZE];
-    // send identify command
-    if (R503_send_package(cmd, R503_COMMAND_PACKET, sizeof(cmd)) != ESP_OK) {
-        return ESP_FAIL;
-    }
-    // read ACK packet
-    if (R503_read_package(response) < 0 || response[9] != R503_SUCCESS) {
-        ESP_LOGE(TAG, "Auto‑identify ACK failed (code=0x%02X)", response[9]);
-        return ESP_FAIL;
-    }
-    // read search result packet
-    if (R503_read_package(response) < 0) {
-        ESP_LOGE(TAG, "Auto‑identify read result error");
-        return ESP_FAIL;
-    }
-    // response[9] & [10] hold the matching ID (0xFFFF if no match)
-    uint16_t match_id = (response[9] << 8) | response[10];
-    if (match_id == 0xFFFF) {
-        return ESP_FAIL;
-    }
-    return ESP_OK;
 }
