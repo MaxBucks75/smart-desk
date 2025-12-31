@@ -18,10 +18,8 @@
 const uart_port_t uart_num = UART_NUM_2;
 const int R503_buffer_size = (512 * 2); // Allocate buffer size of 64 bytes for ~16 byte UART messages
 
-// Holds the value from the last R503 rx transmission
-static uint8_t R503_rx_buf[MAX_R503_PACKET_SIZE];
-static uint16_t R503_rx_length;
-static uint16_t R503_rx_index;
+static uint8_t R503_rx_buf[MAX_R503_PACKET_SIZE]; // Holds the value from the last R503 rx transmission
+static uint16_t R503_rx_index;                    // Holds the index for the number of bytes in the last rx transmission
 
 QueueHandle_t uart_queue;              // UART event queue
 static QueueHandle_t response_queue;   // R503 data queue

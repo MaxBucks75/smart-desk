@@ -1,5 +1,5 @@
 #include "desk_controls.h"
-#include "esp_log.h"
+#include "tasks/ipc.h"
 
 #define TAG "ADC_CONT"
 
@@ -97,6 +97,9 @@ void detect_raising_or_lowering(void) {
                                     !smart_desk_events.bl_sensor_activated && !smart_desk_events.br_sensor_activated);
     bool lower_desk_input_detected = (!smart_desk_events.tl_sensor_activated && !smart_desk_events.tr_sensor_activated && 
                                     smart_desk_events.bl_sensor_activated && smart_desk_events.br_sensor_activated);
+    
+    // Update global flag
+    smart_desk_events.desk_moving = (raise_desk_input_detected | lower_desk_input_detected);
 
     TickType_t now = xTaskGetTickCount(); // Read the time
 
@@ -109,7 +112,7 @@ void detect_raising_or_lowering(void) {
         } else if (((now - desk_lower_detected_time) >= pdMS_TO_TICKS(DEBOUNCE_DELAY_MS))) {
             start_lowering_desk();
             vibrator_set_strength(200);
-            //ESP_LOGI(TAG, "Lowering Desk...");
+            ESP_LOGI(TAG, "Lowering Desk...");
         }
 
     } else if (raise_desk_input_detected) {
@@ -118,7 +121,7 @@ void detect_raising_or_lowering(void) {
         } else if (((now - desk_raise_detected_time) >= pdMS_TO_TICKS(DEBOUNCE_DELAY_MS))) {
             start_raising_desk();
             vibrator_set_strength(200);
-            //ESP_LOGI(TAG, "Raising Desk...");
+            ESP_LOGI(TAG, "Raising Desk...");
         }
     // Reset time and update flag as lower desk input is no longer detected
     } else {

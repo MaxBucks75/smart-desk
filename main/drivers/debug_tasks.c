@@ -3,7 +3,7 @@
 #include "freertos/task.h"
 #include "fingerprint.h"
 #include "esp_log.h"
-#include "events.h"
+#include "tasks/ipc.h"
 #include "desk_controls.h"
 #include "driver/uart.h"
 #include "temperature_sensor.h"
@@ -186,7 +186,6 @@ void power_test_task(void *pvParam) {
 }
 
 void fingerprint_enroll_task(void *pvParam) {
-    uint8_t slot = 1;
 
     esp_err_t err;
     err = read_system_parameters();

@@ -1,2 +1,2 @@
-idf_component_register(SRCS "desk_controls.c" "fingerprint.c" "debug_tasks.c" "main.c" "events.c" "fan_controller.c" "temperature_sensor.c"
+idf_component_register(SRCS "drivers/desk_controls.c" "drivers/fingerprint.c" "drivers/debug_tasks.c" "main.c" "drivers/events.c" "drivers/fan_controller.c" "drivers/temperature_sensor.c"
                     INCLUDE_DIRS ".")
