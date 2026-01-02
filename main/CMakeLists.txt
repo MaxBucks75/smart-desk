@@ -1,2 +1,2 @@
-idf_component_register(SRCS "drivers/desk_controls.c" "drivers/fingerprint.c" "drivers/debug_tasks.c" "main.c" "drivers/events.c" "drivers/fan_controller.c" "drivers/temperature_sensor.c"
-                    INCLUDE_DIRS ".")
+idf_component_register(SRCS "drivers/desk_controls.c" "drivers/fingerprint.c" "drivers/debug_tasks.c" "main.c" "drivers/fan_controller.c" "drivers/temperature_sensor.c" "tasks/ipc.c" "tasks/fan_control_task.c" "tasks/height_control_task.c" "tasks/identify_task.c" "tasks/power_control_task.c" "tasks/system_manager_task.c" "tasks/temperature_task.c"
+    INCLUDE_DIRS "." "drivers" "tasks")

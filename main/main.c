@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 #include "drivers/fingerprint.h"
 #include "esp_log.h"
-#include "drivers/events.h"
 #include "drivers/desk_controls.h"
 #include "driver/uart.h"
 #include "drivers/temperature_sensor.h"
@@ -13,7 +12,6 @@
 #include "driver/i2c.h"
 #include "semaphore.h"
 #include "tasks/temperature_task.c"
-#include "tasks/force_task.c"
 #include "tasks/identify_task.c"
 #include "tasks/fan_control_task.c"
 #include "tasks/height_control_task.c"
@@ -40,7 +38,6 @@ void app_main(void)
     ipc_init();
 
     temperature_task_init();
-    force_task_init();
     identify_task_init();
 
     fan_control_task_init();

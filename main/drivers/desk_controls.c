@@ -86,7 +86,6 @@ void get_activated_force_sensors(void) {
     smart_desk_events.br_sensor_activated = (br_raw > FORCE_SENSOR_ACTIVATED_THRESHOLD);
 }
 
-
 void detect_raising_or_lowering(void) {
 
     // Read force sensor activation and update flags
@@ -111,7 +110,8 @@ void detect_raising_or_lowering(void) {
         // Check if the ticks since first detection is greater than the debounce threshold
         } else if (((now - desk_lower_detected_time) >= pdMS_TO_TICKS(DEBOUNCE_DELAY_MS))) {
             start_lowering_desk();
-            vibrator_set_strength(200);
+            smart_desk_events.desk_moving = 1;
+            //vibrator_set_strength(200);
             ESP_LOGI(TAG, "Lowering Desk...");
         }
 
@@ -120,16 +120,18 @@ void detect_raising_or_lowering(void) {
             desk_raise_detected_time = now;
         } else if (((now - desk_raise_detected_time) >= pdMS_TO_TICKS(DEBOUNCE_DELAY_MS))) {
             start_raising_desk();
-            vibrator_set_strength(200);
+            smart_desk_events.desk_moving = 1;
+            //vibrator_set_strength(200);
             ESP_LOGI(TAG, "Raising Desk...");
         }
     // Reset time and update flag as lower desk input is no longer detected
     } else {
         stop_raising_desk();
         stop_lowering_desk();
-        vibrator_set_strength(0);
+        //vibrator_set_strength(0);
         desk_raise_detected_time = 0;
         desk_lower_detected_time = 0;
+        smart_desk_events.desk_moving = 0;
     }
 
 }

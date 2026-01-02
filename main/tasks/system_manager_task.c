@@ -1,11 +1,66 @@
-#pragma once
-
 #include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include "ipc.h"
+#include "freertos/FreeRTOS.h"
+#include "esp_log.h"
+
+#define TAG "debug"
+
+static float last_temp_central = NAN;
+static float last_temp_exhaust = NAN;
 
 void system_manager_task(void *pvParam) {
 
-    //sensor_msg_t msg;
-    //TickType_t now = xTaskGetTickCount();
+    sensor_msg_t sensor_msg;
+    control_msg_t control_msg;
+
+    for (;;) {
+
+        if (xQueueReceive(sensor_queue, &sensor_msg, pdMS_TO_TICKS(200)) == pdTRUE) {
+
+            if (sensor_msg.source == SENSOR_SOURCE_TEMP) {
+                
+                // Get the current temp readings by unpacking float data
+                uint32_t central_bits = (uint32_t)(sensor_msg.data >> 32);
+                uint32_t exhaust_bits = (uint32_t)(sensor_msg.data & 0xFFFFFFFF);
+
+                float curr_temp_central, curr_temp_exhaust;
+                memcpy(&curr_temp_central, &central_bits, sizeof(float));
+                memcpy(&curr_temp_exhaust, &exhaust_bits, sizeof(float));
+
+                // Check if this is the first reading
+                if (isnan(last_temp_central)) {
+                    last_temp_central = curr_temp_central;
+                    last_temp_exhaust = curr_temp_exhaust;
+                }
+
+                // Check if there has been a change of +/- 0.5 degrees in either of the readings
+                if (fabsf(curr_temp_central - last_temp_central) >= 0.5 ||
+                    fabsf(curr_temp_exhaust - last_temp_exhaust) >= 0.5) {
+                        // Build control message and add it to queue
+                        control_msg.cmd = SET_FAN_SPEED;
+                        control_msg.data = sensor_msg.data;
+                        if (xQueueSend(control_queue, &control_msg, pdMS_TO_TICKS(10)) == pdTRUE) {
+                            // ONLY update last temp if we are updating fan PWM based on that temp delta
+                            last_temp_central = curr_temp_central;
+                            last_temp_exhaust = curr_temp_exhaust;
+                        } else {
+                            ESP_LOGW(TAG, "Control queue error when setting fan speed");
+                        }
+                }
+
+            } else if (sensor_msg.source == SENSOR_SOURCE_FP) {
+                control_msg.cmd = UPDATE_POWER;
+                control_msg.data = sensor_msg.data;
+                if (xQueueSend(control_queue, &control_msg, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    ESP_LOGW(TAG, "Control queue error when updating power");
+                }
+            }
+
+        }
+
+    }
 
 }
 

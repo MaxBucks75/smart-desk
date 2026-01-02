@@ -1,13 +1,15 @@
 #include "temperature_sensor.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
-#include "sdkconfig.h"
 
 #define TAG "TEMP_SENSOR"
 
 //#define TEMP_DEBUG
 
 static i2c_master_bus_handle_t bus_handle = NULL;
+
+i2c_master_dev_handle_t temp_handle_exhaust;
+i2c_master_dev_handle_t temp_handle_central;
 
 void i2c_init(void) {
 
@@ -25,6 +27,9 @@ void i2c_init(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(err));
     }
+
+    mcp9808_init(get_i2c_bus_handle(), MCP9808_EXHAUST_ADDRESS, &temp_handle_exhaust);
+    mcp9808_init(get_i2c_bus_handle(), MCP9808_CENTRAL_ADDRESS, &temp_handle_central);
 
 }
 

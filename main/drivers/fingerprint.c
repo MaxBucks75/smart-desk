@@ -73,7 +73,8 @@ void uart_event_task(void *pvParameters) {
 
     while (1) {
 
-        if (xQueueReceive(uart_queue, &event, portMAX_DELAY)) {
+        // TODO: should i use pdTRUE????
+        if (xQueueReceive(uart_queue, &event, portMAX_DELAY) == pdTRUE) {
             
             // Wait for UART data to be received
             if (event.type == UART_DATA) {

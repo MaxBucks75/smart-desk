@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include "esp_adc/adc_continuous.h"
-#include "events.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
