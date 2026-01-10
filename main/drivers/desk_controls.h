@@ -7,6 +7,7 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_log.h"
+#include "tasks/ipc.h"
 
 #define ADC_UNIT         ADC_UNIT_1
 #define CONV_MODE        ADC_CONV_SINGLE_UNIT_1
@@ -14,14 +15,18 @@
 #define ADC_ATTEN        ADC_ATTEN_DB_12
 #define ADC_BIT_WIDTH    SOC_ADC_DIGI_MAX_BITWIDTH
 
-// Force sensors
-#define TL_FORCE_SENSOR_CH ADC_CHANNEL_0 // pin 36 220 Ohm Green
-#define TR_FORCE_SENSOR_CH ADC_CHANNEL_3 // pin 39 220 Ohm Red
-#define BL_FORCE_SENSOR_CH ADC_CHANNEL_6 // pin 34 1k Ohm Blue (FSR a little busted)
-#define BR_FORCE_SENSOR_CH ADC_CHANNEL_7 // pin 35 220 Ohm Yellow
-#define FORCE_SENSOR_ACTIVATED_THRESHOLD    0x0800
-#define DEBOUNCE_DELAY_MS                   1000
-#define READ_LEN                            8
+// Force sensors - connected to 4.7k Ohm resistors
+#define TL_FORCE_SENSOR_CH ADC_CHANNEL_3        // pin 39 Yellow White
+#define TR_FORCE_SENSOR_CH ADC_CHANNEL_0        // pin 36 Green Green
+#define BL_FORCE_SENSOR_CH ADC_CHANNEL_6        // pin 34 Blue White
+#define BR_FORCE_SENSOR_CH ADC_CHANNEL_7        // pin 35 Yellow Yellow
+// Tuned all force sensor thresholds based on variations in housing (ideally at 0 pressure output is 0x0FFF or max voltage)
+#define TL_FORCE_SENSOR_ACTIVATED_THRESHOLD    0x0000
+#define TR_FORCE_SENSOR_ACTIVATED_THRESHOLD    0x0000
+#define BL_FORCE_SENSOR_ACTIVATED_THRESHOLD    0x0000
+#define BR_FORCE_SENSOR_ACTIVATED_THRESHOLD    0x0000
+#define DEBOUNCE_DELAY_MS                      1000 // Delay (ms) that force sensors must be held under threshold
+#define READ_LEN                               8
 
 // Linear Actuator
 #define LINEAR_ACTUATOR_IN1 GPIO_NUM_27
@@ -37,8 +42,8 @@ typedef struct {
 #define RELAY_LINEAR_ACTUATOR_PIN GPIO_NUM_33
 
 // Height control
-#define RELAY_DESK_RAISE_PIN GPIO_NUM_12
-#define RELAY_DESK_LOWER_PIN GPIO_NUM_14
+#define RELAY_DESK_RAISE_PIN GPIO_NUM_14
+#define RELAY_DESK_LOWER_PIN GPIO_NUM_12
 
 // Power
 #define RELAY_MOBO_POWER GPIO_NUM_13
@@ -48,7 +53,7 @@ typedef struct {
 #define VIBRATOR_PIN GPIO_NUM_5
 
 void adc_continuous_init(void);
-void adc_reader_task(void *arg);
+void adc_reader(void);
 
 void get_activated_force_sensors(void);
 void detect_raising_or_lowering(void);
@@ -58,8 +63,8 @@ void linear_actuator_init(void);
 void control_usb_hub(void);
 
 void relay_init(void);
-void extend_actuator(void);
-void retract_actuator(void);
+// void extend_actuator(void);
+// void retract_actuator(void);
 void start_raising_desk(void);
 void stop_raising_desk(void);
 void start_lowering_desk(void);

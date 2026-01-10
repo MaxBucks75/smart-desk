@@ -1,11 +1,6 @@
-#include <stdio.h>
-#include "freertos/FreeRTOS.h"
-#include "ipc.h"
-#include "drivers/fingerprint.h"
-#include "drivers/desk_controls.h"
-#include "esp_log.h"
+#include "power_control_task.h"
 
-#define TAG "PowerControl"
+#define TAG "PowerControlTask"
 
 void power_control_task(void *pvParam) {
 
@@ -14,6 +9,8 @@ void power_control_task(void *pvParam) {
     for (;;) {
 
         if (xQueueReceive(control_queue, &msg, portMAX_DELAY) == pdTRUE && msg.cmd == UPDATE_POWER) {
+
+            ESP_LOGI(TAG, "Power control task running...");
 
             // Check if the fingerpint was found in the R503 library
             if (msg.data == 1) {
@@ -24,16 +21,27 @@ void power_control_task(void *pvParam) {
 
                 // Check if the desk is now on or off
                 if (smart_desk_events.computer_power == 0) {
-                    set_led(R503_LED_GRADUALLY_OFF, 0xC0, R503_LED_COLOR_PURPLE, 0x00); // flash purple if powering down
+                    smart_desk_events.set_fp_led_pur = 1;
                     ESP_LOGI(TAG, "Computer powering down...");
                 } else if (smart_desk_events.computer_power == 1) {
-                    set_led(R503_LED_GRADUALLY_ON, 0xC0, R503_LED_COLOR_BLUE, 0x00); // flash blue if powering up
+                    smart_desk_events.set_fp_led_blu = 1;
                     ESP_LOGI(TAG, "Computer booting up...");
                 }
 
-                // Fingerprint not found in R503 library
+                smart_desk_events.finger_detected = 0; // Ready to resume auto identify
+
+            // Fingerprint not found in R503 library, update instantly
             } else {
-                set_led(R503_LED_GRADUALLY_OFF, 0xC0, R503_LED_COLOR_RED, 0x00); // flash red if fingerprint not found
+
+                // Update flag so LED will reflect current power state
+                if (smart_desk_events.computer_power == 0) {
+                    smart_desk_events.set_fp_led_pur = 1;
+                } else if (smart_desk_events.computer_power == 1) {
+                    smart_desk_events.set_fp_led_blu = 1;
+                }
+
+                set_led(R503_LED_GRADUALLY_OFF, 0xCC, R503_LED_COLOR_RED, 0x00); // Flash red if fingerprint not found
+
             }
 
         }
@@ -43,5 +51,5 @@ void power_control_task(void *pvParam) {
 }
 
 void power_control_task_init(void) {
-    xTaskCreate(power_control_task, "PowerControlTask", 4096, NULL, 2, NULL);
+    xTaskCreate(power_control_task, "PowerControlTask", 4096, NULL, PRIO_CONTROL, NULL);
 }

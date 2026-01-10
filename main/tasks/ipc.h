@@ -6,6 +6,15 @@
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 
+// Task priority definitions
+// Keep priorities small and relative. Adjust as needed.
+#define PRIO_IDLE           3
+#define PRIO_SENSOR         2
+#define PRIO_CONTROL        4
+#define PRIO_HEIGHT_CONTROL 5
+#define PRIO_SYSTEM_MANAGER 6
+#define PRIO_FINGERPRINT    1
+
 typedef struct {
     float prev_temp_central;
     float prev_temp_exhaust;
@@ -21,17 +30,24 @@ typedef struct {
     uint16_t tr_sensor;
 } raw_force_data_t;
 
+// Global sensor calibration variables
+// extern uint16_t tl_baseline, tr_baseline, bl_baseline, br_baseline;
+// extern uint16_t tl_trigger_delta, tr_trigger_delta, bl_trigger_delta, br_trigger_delta;
+
 // Event flags for desk
 typedef struct {
     unsigned int tl_sensor_activated : 1;
     unsigned int tr_sensor_activated : 1;
     unsigned int bl_sensor_activated : 1;
     unsigned int br_sensor_activated : 1;
-    unsigned int desk_moving : 1;
-    unsigned int finger_detected : 1;
-    unsigned int computer_power : 1;
-    unsigned int usb_hub_extended : 1;
-    unsigned int usb_hub_moving : 1;
+    unsigned int desk_moving         : 1;
+    unsigned int finger_detected     : 1;
+    unsigned int computer_power      : 1;
+    unsigned int set_fp_led_pur      : 1;
+    unsigned int set_fp_led_blu      : 1;
+    unsigned int set_fp_led_red      : 1;
+    unsigned int usb_hub_extended    : 1;
+    unsigned int usb_hub_moving      : 1;
 } smart_desk_events_t;
 
 // Used for tracking the last sensor reading from queue

@@ -1,11 +1,8 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include "ipc.h"
-#include "drivers/temperature_sensor.h"
-#include "freertos/FreeRTOS.h"
+#include "temperature_task.h"
 
-static const TickType_t TEMP_SAMPLE_PERIOD = pdMS_TO_TICKS(500);
+#define TAG "TempTask"
+
+static const TickType_t TEMP_SAMPLE_PERIOD = pdMS_TO_TICKS(200);
 
 void temperature_task(void *pvParam)
 {
@@ -14,6 +11,8 @@ void temperature_task(void *pvParam)
     TickType_t last_wake = xTaskGetTickCount();
 
     for (;;) {
+
+        ESP_LOGI(TAG, "Temp task running...");
 
         float temp_central = get_temperature_reading(temp_handle_central);
         float temp_exhaust = get_temperature_reading(temp_handle_exhaust);
@@ -33,7 +32,6 @@ void temperature_task(void *pvParam)
     }
 }
 
-void temperature_task_init(void)
-{
-    xTaskCreate(temperature_task, "TempTask", 4096, NULL, 1, NULL);
+void temperature_task_init(void) {
+    xTaskCreate(temperature_task, "TempTask", 4096, NULL, PRIO_SENSOR, NULL);
 }

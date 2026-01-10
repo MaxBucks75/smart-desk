@@ -1,5 +1,4 @@
 #include "desk_controls.h"
-#include "tasks/ipc.h"
 
 #define TAG "ADC_CONT"
 
@@ -18,11 +17,21 @@ volatile uint16_t tr_raw = 0;
 volatile uint16_t bl_raw = 0;
 volatile uint16_t br_raw = 0;
 
+// Global sensor calibration variables
+// uint16_t tl_baseline = 0;
+// uint16_t tr_baseline = 0;
+// uint16_t bl_baseline = 0;
+// uint16_t br_baseline = 0;
+// uint16_t tl_trigger_delta = 0;
+// uint16_t tr_trigger_delta = 0;
+// uint16_t bl_trigger_delta = 0;
+// uint16_t br_trigger_delta = 0;
+
 static const adc_channel_t channels[] = {
-    ADC_CHANNEL_0,  // GPIO36 - TL
-    ADC_CHANNEL_3,  // GPIO39 - TR
-    ADC_CHANNEL_6,  // GPIO34 - BL
-    ADC_CHANNEL_7   // GPIO35 - BR
+    TL_FORCE_SENSOR_CH,  // GPIO39 CH3
+    TR_FORCE_SENSOR_CH,  // GPIO36 CH0
+    BL_FORCE_SENSOR_CH,  // GPIO34 CH6
+    BR_FORCE_SENSOR_CH   // GPIO35 CH7
 };
 
 adc_continuous_handle_t adc_handle;
@@ -53,37 +62,34 @@ void adc_continuous_init(void) {
     ESP_ERROR_CHECK(adc_continuous_config(adc_handle, &adc_config));
     ESP_ERROR_CHECK(adc_continuous_start(adc_handle));
 
-    xTaskCreate(adc_reader_task, "adc_reader", 4096, NULL, 2, NULL);
-
 }
 
-void adc_reader_task(void *arg) {
+void adc_reader(void) {
 
     uint8_t result[64];
     uint32_t output_length = 0;
 
-    while (1) {
-        esp_err_t ret = adc_continuous_read(adc_handle, result, sizeof(result), &output_length, 100);
-        if (ret == ESP_OK && output_length > 0) {
-            for (int i = 0; i < output_length; i += sizeof(adc_digi_output_data_t)) {
-                adc_digi_output_data_t *data = (adc_digi_output_data_t *)&result[i];
-                switch (data->type1.channel) {
-                    case 0: tl_raw = data->type1.data; break;
-                    case 3: tr_raw = data->type1.data; break;
-                    case 6: bl_raw = data->type1.data; break;
-                    case 7: br_raw = data->type1.data; break;
-                }
+    esp_err_t ret = adc_continuous_read(adc_handle, result, sizeof(result), &output_length, 10);
+    if (ret == ESP_OK && output_length > 0) {
+        for (int i = 0; i < output_length; i += sizeof(adc_digi_output_data_t)) {
+            adc_digi_output_data_t *data = (adc_digi_output_data_t *)&result[i];
+            switch (data->type1.channel) {
+                case 0: tr_raw = data->type1.data; break;
+                case 3: tl_raw = data->type1.data; break;
+                case 6: bl_raw = data->type1.data; break;
+                case 7: br_raw = data->type1.data; break;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
+    } else {
+        ESP_LOGE(TAG, "Timeout when running adc read");
     }
 }
 
 void get_activated_force_sensors(void) {
-    smart_desk_events.tl_sensor_activated = (tl_raw > FORCE_SENSOR_ACTIVATED_THRESHOLD);
-    smart_desk_events.tr_sensor_activated = (tr_raw > FORCE_SENSOR_ACTIVATED_THRESHOLD);
-    smart_desk_events.bl_sensor_activated = (bl_raw > FORCE_SENSOR_ACTIVATED_THRESHOLD);
-    smart_desk_events.br_sensor_activated = (br_raw > FORCE_SENSOR_ACTIVATED_THRESHOLD);
+    smart_desk_events.tl_sensor_activated = (tl_raw <= TL_FORCE_SENSOR_ACTIVATED_THRESHOLD);
+    smart_desk_events.tr_sensor_activated = (tr_raw <= TR_FORCE_SENSOR_ACTIVATED_THRESHOLD);
+    smart_desk_events.bl_sensor_activated = (bl_raw <= BL_FORCE_SENSOR_ACTIVATED_THRESHOLD);
+    smart_desk_events.br_sensor_activated = (br_raw <= BR_FORCE_SENSOR_ACTIVATED_THRESHOLD);
 }
 
 void detect_raising_or_lowering(void) {
@@ -215,10 +221,10 @@ void control_usb_hub(void) {
 
 }
 
+// Add this back for linear actuator (1ULL << RELAY_LINEAR_ACTUATOR_PIN) |
 void relay_init(void) {
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << RELAY_LINEAR_ACTUATOR_PIN) |
-                        (1ULL << RELAY_DESK_RAISE_PIN) |
+        .pin_bit_mask = (1ULL << RELAY_DESK_RAISE_PIN) |
                         (1ULL << RELAY_DESK_LOWER_PIN) |
                         (1ULL << RELAY_MOBO_POWER),
         .mode = GPIO_MODE_OUTPUT,
@@ -230,7 +236,7 @@ void relay_init(void) {
     gpio_config(&io_conf);
 
     // Set default LOW states
-    gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 0);
+    // gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 0);
     gpio_set_level(RELAY_DESK_RAISE_PIN, 0);
     gpio_set_level(RELAY_DESK_LOWER_PIN, 0);
     gpio_set_level(RELAY_MOBO_POWER, 0);
@@ -242,13 +248,13 @@ void relay_init(void) {
 
 }
 
-void extend_actuator(void) {
-    gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 1);   // HIGH = energize relay (depends on module)
-}
+// void extend_actuator(void) {
+//     gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 1);   // HIGH = energize relay (depends on module)
+// }
 
-void retract_actuator(void) {
-    gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 0);   // LOW = release relay
-}
+// void retract_actuator(void) {
+//     gpio_set_level(RELAY_LINEAR_ACTUATOR_PIN, 0);   // LOW = release relay
+// }
 
 void start_raising_desk(void) {
     gpio_set_level(RELAY_DESK_RAISE_PIN, 1);

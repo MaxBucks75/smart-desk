@@ -1,10 +1,8 @@
-#include <stdio.h>
-#include <string.h>
-#include "freertos/FreeRTOS.h"
-#include "ipc.h"
-#include "drivers/desk_controls.h"
+#include "height_control_task.h"
 
-static const TickType_t HEIGHT_SAMPLE_PERIOD = pdTICKS_TO_MS(50);
+#define TAG "HeightControlTask"
+
+static const TickType_t HEIGHT_SAMPLE_PERIOD = pdMS_TO_TICKS(50);
 
 void height_control_task(void *pvParam) {
 
@@ -12,6 +10,11 @@ void height_control_task(void *pvParam) {
     
 
     for (;;) {
+
+        ESP_LOGI(TAG, "Height Control task running...");
+
+        // Sample ADC, update raw values
+        adc_reader();
 
         // Check if the conditions are met to lower or raise the desk every ~50 ms
         detect_raising_or_lowering();
@@ -22,5 +25,5 @@ void height_control_task(void *pvParam) {
 }
 
 void height_control_task_init(void) {
-    xTaskCreate(height_control_task, "HeightControlTask", 4096, NULL, 2, NULL);
+    xTaskCreate(height_control_task, "HeightControlTask", 4096, NULL, PRIO_HEIGHT_CONTROL, NULL);
 }

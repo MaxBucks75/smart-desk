@@ -1,6 +1,5 @@
 #include "temperature_sensor.h"
-#include "driver/i2c_master.h"
-#include "esp_log.h"
+
 
 #define TAG "TEMP_SENSOR"
 
@@ -28,12 +27,14 @@ void i2c_init(void) {
         ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(err));
     }
 
-    mcp9808_init(get_i2c_bus_handle(), MCP9808_EXHAUST_ADDRESS, &temp_handle_exhaust);
     mcp9808_init(get_i2c_bus_handle(), MCP9808_CENTRAL_ADDRESS, &temp_handle_central);
+    mcp9808_init(get_i2c_bus_handle(), MCP9808_EXHAUST_ADDRESS, &temp_handle_exhaust);
 
 }
 
 esp_err_t mcp9808_init(i2c_master_bus_handle_t bus, uint8_t address, i2c_master_dev_handle_t *out_handle) {
+
+    uint8_t id_buf[2];
 
     // Config the MCP9808
     i2c_device_config_t dev_cfg = {
@@ -49,17 +50,21 @@ esp_err_t mcp9808_init(i2c_master_bus_handle_t bus, uint8_t address, i2c_master_
     }
 
     // Put device in normal mode (0x0000 -> config register)
-    uint8_t config_write[] = {MCP9808_CONFIG_REG, 0x00, 0x00};
+    uint8_t config_write[] = {MCP9808_CONFIG_REG, 0x00, 0x00}; // normal mode
     err = i2c_master_transmit(*out_handle, config_write, sizeof(config_write), -1);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write config to 0x%02X: %s", address, esp_err_to_name(err));
         return err;
     }
 
-    #ifdef TEMP_DEBUG
+    // Read config register
+    uint8_t config_read[2];
+    uint8_t reg = MCP9808_CONFIG_REG;
+    err = i2c_master_transmit_receive(*out_handle, &reg, 1, config_read, 2, -1);
+    ESP_LOGI(TAG, "Config readback @0x%02X = 0x%02X 0x%02X", address, config_read[0], config_read[1]);
+
     // Read Manufacturer ID
-    uint8_t reg = MCP9808_MANUFACTURER_ID_REG;
-    uint8_t id_buf[2];
+    reg = MCP9808_MANUFACTURER_ID_REG;
     err = i2c_master_transmit_receive(*out_handle, &reg, 1, id_buf, 2, -1);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read manufacturer ID from 0x%02X", address);
@@ -82,7 +87,6 @@ esp_err_t mcp9808_init(i2c_master_bus_handle_t bus, uint8_t address, i2c_master_
     } else {
         ESP_LOGI(TAG, "Verified MCP9808 at 0x%02X (MID=0x%04X DID=0x%04X)", address, manuf_id, dev_id);
     }
-    #endif
 
     return ESP_OK;
 
@@ -94,11 +98,16 @@ float get_temperature_reading(i2c_master_dev_handle_t dev_handle) {
     float temp = -1000.0;
     uint8_t reg = MCP9808_TEMPERATURE_REG;
 
+    // Transmit the message to receive the temperature data
     esp_err_t err = i2c_master_transmit_receive(dev_handle, &reg, 1, data, 2, -1);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2C temp read failed: %s", esp_err_to_name(err));
         return temp;
     }
+    
+    #ifdef TEMP_DEBUG
+    ESP_LOGI(TAG, "Raw: 0x%02X 0x%02X", data[0], data[1]);
+    #endif
 
     // Convert raw bits to celsius (data[0] = MSB, data[1] = LSB)
     data[0] = data[0] & 0x1F; // Clear flag bits
@@ -110,17 +119,7 @@ float get_temperature_reading(i2c_master_dev_handle_t dev_handle) {
         temp = data[0] * 16.0f + (float)data[1] / 16.0f;
     }
 
-    #ifdef TEMP_DEBUG
-    ESP_LOGI(TAG, "Raw: 0x%02X 0x%02X", data[0], data[1]);
-    ESP_LOGI(TAG, "Temperature detected: %.4f", temp);
-    #endif
-
-    if (temp == -1000.0) {
-        return ESP_ERR_INVALID_RESPONSE;
-    } else {
-        return temp;
-    }
-    
+    return temp;
 
 }
 

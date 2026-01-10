@@ -10,6 +10,7 @@
 #include "stdint.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
+#include "tasks/ipc.h"
 
 // Defaults
 #define R503_RECEIVE_TIMEOUT                    3000

@@ -34,18 +34,18 @@ void fingerprint_power_task(void *pvParam) {
     esp_err_t err;
     err = read_system_parameters();
     if (err != ESP_OK) {
-        ESP_LOGE("FINGERPRINT", "read systen params is broken");
+        ESP_LOGE(TAG, "read systen params is broken");
     }
 
     while (1) {
 
         err = auto_identify();
 
-        ESP_LOGI("FINGERPRINT", "Checking if buffer 1 & 2 match 00 = match, 01 = err receiving, 08 = bufs don't match");
+        ESP_LOGI(TAG, "Checking if buffer 1 & 2 match 00 = match, 01 = err receiving, 08 = bufs don't match");
         if (err == ESP_OK) {
-            ESP_LOGI("FINGERPRINT", "Shorting motherboard pins");
+            ESP_LOGI(TAG, "Shorting motherboard pins");
             set_led(R503_LED_ALWAYS_ON, 0x80, R503_LED_COLOR_RED, 0x00);
-            short_mobo_power_pins();
+            //short_mobo_power_pins();
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
 
@@ -80,21 +80,27 @@ void force_sensor_test_task(void *pvParam) {
 
 void temp_sensor_test_task(void *pvParam) {
 
-    float temp_reading = -1000.0f;
-    i2c_master_dev_handle_t temp_handle;
-    uint8_t mcp9808_address = 0x19;
-    mcp9808_init(get_i2c_bus_handle(), mcp9808_address, &temp_handle);
+    float temp_reading_central = -1000.0f;
+    float temp_reading_exhaust = -1000.0f;
+
+    check_i2c_address();
 
     while (1) {
 
-        temp_reading = get_temperature_reading(temp_handle);
-        if (temp_reading != -1000.0f) {
-            printf("Ambient Temp: %.4f °C\n", temp_reading);
+        temp_reading_central = get_temperature_reading(temp_handle_central);
+        if (temp_reading_central != -1000.0f) {
+            printf("Ambient Temp Central: %.4f °C\n", temp_reading_central);
         } else {
             printf("Failed to read temperature\n");
         }
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(500));
+        temp_reading_exhaust = get_temperature_reading(temp_handle_exhaust);
+        if (temp_reading_exhaust != -1000.0f) {
+            printf("Ambient Temp Exhaust: %.4f °C\n", temp_reading_exhaust);
+        } else {
+            printf("Failed to read temperature\n");
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
 
     }
 
@@ -104,25 +110,23 @@ void temp_sensor_test_task(void *pvParam) {
 
 void fan_test_task(void *pvParam) {
 
-    i2c_master_dev_handle_t temp_handle;
-    mcp9808_init(get_i2c_bus_handle(), 0x19, &temp_handle);
-    float start_temp = get_temperature_reading(temp_handle);
-    ESP_LOGI("FAN_TEST", "Starting temp: %.4f °C", start_temp);
+    check_i2c_address();
 
     while (1) {
 
-        float curr_temp = get_temperature_reading(temp_handle);
-        ESP_LOGI("FAN_TEST", "Current temp: %.4f °C", curr_temp);
+        // Testing that the fans will spin up and slow down by artificially increasing the
+        float curr_temp_central = get_temperature_reading(temp_handle_central);
+        float curr_temp_exhaust = get_temperature_reading(temp_handle_exhaust);
 
-        // Artificially max out or zero the current temp if I breathe on the sensor
-        if (curr_temp > start_temp) {
-            curr_temp = 100;
-        } else {
-            curr_temp = 0;
-        }
+        fan_set_speed(&curr_temp_central, &curr_temp_exhaust);
 
-        fan_set_speed(&curr_temp, &curr_temp);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
+
+        curr_temp_exhaust = 100.0;
+
+        fan_set_speed(&curr_temp_central, &curr_temp_exhaust);
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
         
     }
 }
@@ -190,7 +194,7 @@ void fingerprint_enroll_task(void *pvParam) {
     esp_err_t err;
     err = read_system_parameters();
     if (err != ESP_OK) {
-        ESP_LOGE("FINGERPRINT", "read systen params is broken");
+        ESP_LOGE(TAG, "read systen params is broken");
     }
 
     while (1) {

@@ -1,11 +1,6 @@
-#include <stdio.h>
-#include <string.h>
-#include "ipc.h"
-#include "drivers/fan_controller.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
+#include "fan_control_task.h"
 
-#define TAG "FanControl"
+#define TAG "FanControlTask"
 
 void fan_control_task(void *pvParam)
 {
@@ -14,9 +9,12 @@ void fan_control_task(void *pvParam)
 
     for (;;) {
 
-        if (xQueueReceive(control_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(control_queue, &msg, portMAX_DELAY) == pdTRUE && msg.cmd == SET_FAN_SPEED) {
 
-            if (msg.cmd == SET_FAN_SPEED) {
+            // Only update PWM if the computer is on, PSU doesn't provide 12V idle power rail
+            if (smart_desk_events.computer_power) {
+
+                ESP_LOGI(TAG, "Fan control task running...");
 
                 // Get the current temp readings by unpacking float data
                 uint32_t central_bits = (uint32_t)(msg.data >> 32);
@@ -40,5 +38,5 @@ void fan_control_task(void *pvParam)
 }
 
 void fan_control_task_init(void) {
-    xTaskCreate(fan_control_task, "FanControlTask", 4096, NULL, 2, NULL);
+    xTaskCreate(fan_control_task, "FanControlTask", 4096, NULL, PRIO_CONTROL, NULL);
 }

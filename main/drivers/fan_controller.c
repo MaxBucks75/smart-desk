@@ -6,6 +6,8 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#define TAG "FANCONTROLLER"
+
 void fans_init(void) {
 
     ledc_timer_config_t timer_conf = {
@@ -45,6 +47,8 @@ void fan_set_speed(float *temp_central, float *temp_exhaust) {
             duty_cycle = (uint8_t)(((*temp_exhaust - MCP9808_EXHAUST_START_FANS_THRESHOLD_C) / (MCP9808_EXHAUST_MAX_FANS_THRESHOLD_C - MCP9808_EXHAUST_START_FANS_THRESHOLD_C)) * 255.0 );
         }
     }
+
+    ESP_LOGI(TAG, "Duty cycle: %d", duty_cycle);
 
     ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL, duty_cycle));
     ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_MODE, FAN_PWM_CHANNEL));

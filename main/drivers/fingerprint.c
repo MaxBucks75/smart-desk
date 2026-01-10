@@ -58,7 +58,7 @@ void R503_init(void) {
 
     response_queue = xQueueCreate(1, sizeof(size_t));
 
-    xTaskCreate(uart_event_task, "uart_event_task", 4096, NULL, 12, NULL); // Start the UART task to poll for response
+    xTaskCreate(uart_event_task, "uart_event_task", 4096, NULL, PRIO_FINGERPRINT, NULL); // Start the UART task to poll for response
 
     ESP_LOGI(TAG, "UART initialized on TX=17, RX=16 @57600");
 
@@ -73,9 +73,10 @@ void uart_event_task(void *pvParameters) {
 
     while (1) {
 
-        // TODO: should i use pdTRUE????
         if (xQueueReceive(uart_queue, &event, portMAX_DELAY) == pdTRUE) {
-            
+
+            ESP_LOGI(TAG, "UART event task running...");
+
             // Wait for UART data to be received
             if (event.type == UART_DATA) {
 
@@ -234,7 +235,7 @@ esp_err_t send_package_and_read_ack(uint8_t *cmd, uint16_t length) {
 
     // Wait for the R503 response packet
     size_t rx_length;
-    if (!xQueueReceive(response_queue, &rx_length, pdMS_TO_TICKS(2000))) {
+    if (!xQueueReceive(response_queue, &rx_length, pdMS_TO_TICKS(600))) {
         ESP_LOGE(TAG, "Timeout waiting for ACK packet");
         return ESP_ERR_TIMEOUT;
     }
@@ -592,34 +593,46 @@ esp_err_t auto_enroll(void) {
 
 esp_err_t auto_identify(void) {
 
-    // Collect finger and store in char buffer one
-    if (wait_for_finger_and_capture(R503_CHAR_BUFFER_1, pdMS_TO_TICKS(10000)) != ESP_OK) {
-        ESP_LOGE(TAG, "Timeout waiting for finger or messy image");
-        return ESP_ERR_TIMEOUT;
+    // Generate image
+    esp_err_t err = generate_image();
+
+    if (err == ESP_ERR_NOT_FOUND) {
+        ESP_LOGI(TAG, "No finger detected on sensor");
+    } else if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Generating char file from image");
+        err = generate_char_file_from_image(R503_CHAR_BUFFER_1); // Collect finger and store in char buffer one
     }
 
-    uint8_t cmd[6] = {
-        R503_SEARCH,
-        R503_CHAR_BUFFER_1,
-        0x00, 0x00, // Bytes 2 and 3 of command are the start page parameter (0x0000)
-        0xFF, 0xFF  // Bytes 4 and 5 of command are the end page parameter (0xFFFF)
-    }; 
+    if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGI(TAG, "Image detected but too messy");
+    } else if (err == ESP_OK) {
 
-    send_package_and_read_ack(cmd, 6);
+        ESP_LOGI(TAG, "Checking if fingerprint has a match in the library");
 
-    if (R503_rx_buf[9] == R503_SUCCESS) {
-        uint16_t page_id = (R503_rx_buf[10] << 8 | R503_rx_buf[11]);
-        uint16_t match_score = (R503_rx_buf[12] << 8 | R503_rx_buf[13]);
-        ESP_LOGI(TAG, "Fingerprint match found at page ID: 0x%04X, with match score: 0x%04X", page_id, match_score);
-        return ESP_OK;
+        // Check for fingerprint match in library
+        uint8_t cmd[6] = {
+            R503_SEARCH,
+            R503_CHAR_BUFFER_1,
+            0x00, 0x00, // Bytes 2 and 3 of command are the start page parameter (0x0000)
+            0xFF, 0xFF  // Bytes 4 and 5 of command are the end page parameter (0xFFFF)
+        }; 
 
-    } else if (R503_rx_buf[9] == R503_NO_MATCH_IN_LIBRARY) {
-        ESP_LOGI(TAG, "Fingerprint match not found in library");
-        return ESP_ERR_NOT_FOUND;
+        send_package_and_read_ack(cmd, 6);
 
-    } else {
-        return ESP_FAIL;
+        if (R503_rx_buf[9] == R503_SUCCESS) {
+
+            uint16_t page_id = (R503_rx_buf[10] << 8 | R503_rx_buf[11]);
+            uint16_t match_score = (R503_rx_buf[12] << 8 | R503_rx_buf[13]);
+            ESP_LOGI(TAG, "Fingerprint match found at page ID: 0x%04X, with match score: 0x%04X", page_id, match_score);
+            return ESP_OK;
+
+        } else if (R503_rx_buf[9] == R503_NO_MATCH_IN_LIBRARY) {
+            ESP_LOGI(TAG, "Fingerprint match not found in library");
+            return ESP_ERR_NOT_FOUND;
+        }
     }
+
+    return ESP_FAIL;
 
 }
 

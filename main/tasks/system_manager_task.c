@@ -1,11 +1,6 @@
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-#include "ipc.h"
-#include "freertos/FreeRTOS.h"
-#include "esp_log.h"
+#include "system_manager_task.h"
 
-#define TAG "debug"
+#define TAG "SystemManager"
 
 static float last_temp_central = NAN;
 static float last_temp_exhaust = NAN;
@@ -35,9 +30,9 @@ void system_manager_task(void *pvParam) {
                     last_temp_exhaust = curr_temp_exhaust;
                 }
 
-                // Check if there has been a change of +/- 0.5 degrees in either of the readings
-                if (fabsf(curr_temp_central - last_temp_central) >= 0.5 ||
-                    fabsf(curr_temp_exhaust - last_temp_exhaust) >= 0.5) {
+                // Check if there has been a change of +/- 0.07 degrees in either of the readings
+                if (fabsf(curr_temp_central - last_temp_central) >= 0.07 ||
+                    fabsf(curr_temp_exhaust - last_temp_exhaust) >= 0.07) {
                         // Build control message and add it to queue
                         control_msg.cmd = SET_FAN_SPEED;
                         control_msg.data = sensor_msg.data;
@@ -65,5 +60,5 @@ void system_manager_task(void *pvParam) {
 }
 
 void system_manager_task_init(void) {
-    xTaskCreate(system_manager_task, "SystemManagerTask", 4096, NULL, 3, NULL);
+    xTaskCreate(system_manager_task, "SystemManagerTask", 4096, NULL, PRIO_SYSTEM_MANAGER, NULL);
 }

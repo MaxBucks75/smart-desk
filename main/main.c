@@ -11,31 +11,37 @@
 #include "string.h"
 #include "driver/i2c.h"
 #include "semaphore.h"
-#include "tasks/temperature_task.c"
-#include "tasks/identify_task.c"
-#include "tasks/fan_control_task.c"
-#include "tasks/height_control_task.c"
-#include "tasks/power_control_task.c"
-#include "tasks/system_manager_task.c"
+#include "tasks/temperature_task.h"
+#include "tasks/identify_task.h"
+#include "tasks/fan_control_task.h"
+#include "tasks/height_control_task.h"
+#include "tasks/power_control_task.h"
+#include "tasks/system_manager_task.h"
 #include "tasks/ipc.h"
 
-
-#define CONFIG_DEBUG
+//#define CONFIG_DEBUG
 
 void app_main(void)
 {
     printf("Smart Desk Booting Up...\n");
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(250));
 
     R503_init();
     i2c_init();
     adc_continuous_init();
     fans_init();
-    linear_actuator_init();
+    //linear_actuator_init();
     relay_init();
-    vibrator_init();
+    //vibrator_init();
+    
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    #ifdef CONFIG_DEBUG
+    init_debug_tasks();
+    #else
 
     ipc_init();
+    smart_desk_events.computer_power = 1; // Computer is on
 
     temperature_task_init();
     identify_task_init();
@@ -46,8 +52,8 @@ void app_main(void)
 
     system_manager_task_init();
 
-    #ifdef CONFIG_DEBUG
-    init_debug_tasks();
+    smart_desk_events.finger_detected = 1;
+
     #endif
 
 }
