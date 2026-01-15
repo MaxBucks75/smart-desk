@@ -1,14 +1,25 @@
+/******************************************************************************
+ * @file    power_control_task.c
+ * @brief   Task that handles power on/off actions driven by fingerprint results
+ * @author  Max Bucks
+ * @date    2026-01-14
+ *****************************************************************************/
+
 #include "power_control_task.h"
 
 #define TAG "PowerControlTask"
 
-void power_control_task(void *pvParam) {
+/**
+ * @brief Task that receives power update commands and toggles motherboard power.
+ */
+void power_control_task(void* pvParam) {
 
     control_msg_t msg;
 
     for (;;) {
 
-        if (xQueueReceive(control_queue, &msg, portMAX_DELAY) == pdTRUE && msg.cmd == UPDATE_POWER) {
+        if (xQueueReceive(control_queue, &msg, portMAX_DELAY) == pdTRUE &&
+            msg.cmd == UPDATE_POWER) {
 
             ESP_LOGI(TAG, "Power control task running...");
 
@@ -30,7 +41,7 @@ void power_control_task(void *pvParam) {
 
                 smart_desk_events.finger_detected = 0; // Ready to resume auto identify
 
-            // Fingerprint not found in R503 library, update instantly
+                // Fingerprint not found in R503 library, update instantly
             } else {
 
                 // Update flag so LED will reflect current power state
@@ -40,16 +51,16 @@ void power_control_task(void *pvParam) {
                     smart_desk_events.set_fp_led_blu = 1;
                 }
 
-                set_led(R503_LED_GRADUALLY_OFF, 0xCC, R503_LED_COLOR_RED, 0x00); // Flash red if fingerprint not found
-
+                set_led(R503_LED_GRADUALLY_OFF, 0xCC, R503_LED_COLOR_RED,
+                        0x00); // Flash red if fingerprint not found
             }
-
         }
-
     }
-
 }
 
+/**
+ * @brief Create the power control task.
+ */
 void power_control_task_init(void) {
     xTaskCreate(power_control_task, "PowerControlTask", 4096, NULL, PRIO_CONTROL, NULL);
 }
