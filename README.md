@@ -58,6 +58,10 @@ At this point I thought I had each piece individually working and all I had to d
 
 Overall, I found the experience of creating a unique piece of furniture extremely rewarding. The process was definitely humbling, but it has left me far better equipped to tackle future projects. I am glad I encountered these challenges now rather than on a more consequential project later in my career. Sometimes it was difficult to stay motivated when things broke or took much longer than expected to complete. However, whenever I showed my friends my desk they were really interested which both surprised and motived me. It gave me hope that at some day this desk will be a pretty sweet conversation piece in my future home.
 
+# Video Demonstration
+
+![Smart Desk Instagram Reel](https://www.instagram.com/reel/DUDKS9PE_pF/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==)
+
 # Future Plans (Priority descending)
 
 - Use a laser cutter to add ventilation to the acrylic
