@@ -60,7 +60,7 @@ Overall, I found the experience of creating a unique piece of furniture extremel
 
 # Video Demonstration
 
-![Smart Desk Instagram Reel](https://www.instagram.com/reel/DUDKS9PE_pF/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==)
+https://www.instagram.com/reel/DUDKS9PE_pF/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==
 
 # Future Plans (Priority descending)
 
