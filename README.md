@@ -60,7 +60,7 @@ Overall, I found the experience of creating a unique piece of furniture extremel
 
 # Video Demonstration
 
-[https://www.instagram.com/reel/DUDKS9PE_pF/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==](https://www.youtube.com/shorts/gKuoEzMqwRo)
+[![Video Demo](https://img.youtube.com/vi/gKuoEzMqwRo/hqdefault.jpg)](https://www.youtube.com/shorts/gKuoEzMqwRo)
 
 # Future Plans (Priority descending)
 
